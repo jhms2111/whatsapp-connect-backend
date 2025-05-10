@@ -1,0 +1,13 @@
+
+# Dependency directories
+node_modules/
+# Environment variables
+.env
+.env.production
+# Logs
+logs
+# Dist folder
+dist
+# token folder
+tokens
+### OSX ###
