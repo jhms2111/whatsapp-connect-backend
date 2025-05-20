@@ -1,4 +1,3 @@
-
 import { Server as IOServer } from 'socket.io';
 import { Request, Response } from 'express';
 import path from 'path';
@@ -18,6 +17,7 @@ import {
   simulateTwilioSocket,
 } from '../../integration/application/roomManagement';
 import { addMessageToQueue } from '../../integration/application/messageQueue';
+import Product, { IProduct } from '../../../infraestructure/mongo/models/productModel';
 
 export const uploadDir = path.resolve(__dirname, '..', '..', '..', '..', 'uploads');
 
@@ -30,171 +30,165 @@ export const handleTwilioWebhook = async (
   const roomId = `${From.replace('whatsapp:', '')}___${To}`;
   const sender = `Socket-twilio-${roomId}`;
 
-  let twilioEntry: any;
-  let twilioOwner: string | undefined;
-
   try {
-    twilioEntry = await TwilioNumber.findOne({ number: To });
+    const twilioEntry = await TwilioNumber.findOne({ number: To });
     if (!twilioEntry) {
-      console.warn(`[WEBHOOK] Número ${To} não cadastrado no sistema.`);
       res.status(404).json({ error: 'Número não autorizado.' });
       return;
     }
-    twilioOwner = twilioEntry.owner;
-    console.log(`[WEBHOOK] Mensagem recebida por número de ${twilioOwner}: ${To}`);
-  } catch (error) {
-    console.error('[WEBHOOK] Erro ao verificar número Twilio:', error);
-    res.status(500).json({ error: 'Erro interno.' });
-    return;
-  }
 
-  const getConnectedSocketId = (roomId: string) => {
-    const sockets = Array.from(io.sockets.sockets.values());
-    for (const socket of sockets) {
-      if (socket.rooms.has(roomId)) return socket.id;
+    const twilioOwner = twilioEntry.owner;
+    const bot = await Bot.findOne({ owner: twilioOwner }).populate<{ product: IProduct | IProduct[] }>('product');
+
+    if (!bot) {
+      console.warn(`[BOT] Nenhum bot encontrado para o usuário ${twilioOwner}`);
+      res.status(404).send();
+      return;
     }
-    return null;
-  };
 
-  interface Product {
-    name: string;
-    description: string;
-    priceMin: number;
-    priceMax: number;
-  }
-  
-  const handleBotAutoReply = async (message: string) => {
-    try {
-      const bot = await Bot.findOne().populate('product');
-      if (!bot || !bot.product) return;
-  
-      const products = Array.isArray(bot.product)
-  ? bot.product as unknown as Product[]
-  : [bot.product as unknown as Product];
+    const products = Array.isArray(bot.product)
+      ? bot.product as IProduct[]
+      : [bot.product as IProduct];
 
-  
-      const respostaBot = await generateBotResponse(
-        bot.name ?? 'Enki',
-        bot.persona ?? 'simples e simpática',
-        products,
-        bot.temperature ?? 0.5,
-        message,
-        {
-          name: bot.companyName ?? 'Empresa Genérica',
-          address: bot.address ?? 'Endereço não informado',
-          email: bot.email ?? 'email@empresa.com',
-          phone: bot.phone ?? '(00) 00000-0000',
-        }
-      );
-  
-      if (!respostaBot) return;
-  
-      await sendMessageToTwilio(
-        respostaBot,
-        From.replace('whatsapp:', ''),
-        twilioEntry.number,
-        twilioEntry.accountSid,
-        twilioEntry.authToken
-      );
-  
-      io.to(roomId).emit('twilio message', {
-        sender: 'Bot',
-        message: respostaBot,
-      });
-  
-      await saveMessage(roomId, 'Bot', respostaBot, true);
-    } catch (err) {
-      console.error('[BOT] Erro ao gerar resposta do bot:', err);
-    }
-  };
-  
+    const getConnectedSocketId = (roomId: string) => {
+      const sockets = Array.from(io.sockets.sockets.values());
+      for (const socket of sockets) {
+        if (socket.rooms.has(roomId)) return socket.id;
+      }
+      return null;
+    };
 
-  const handleFileMessage = async (fileUrl: string, fileName: string, fileType: string) => {
-    await saveMessage(roomId, sender, '', true, fileUrl, fileName, twilioOwner);
-
-    const socketEvent = fileType.startsWith('audio/') ? 'audio message' : 'file message';
-    io.to(roomId).emit(socketEvent, {
-      sender,
-      fileName,
-      fileUrl,
-      fileType,
-      source: 'twilio',
-    });
-  };
-
-  const connectedSocketId = getConnectedSocketId(roomId);
-
-  if (occupiedRooms.has(roomId)) {
-    if (MediaUrl0) {
-      const fileName = MediaUrl0.split('/').pop() || 'file_0';
-      const filePath = path.join(uploadDir, fileName);
-
+    const handleBotAutoReply = async (message: string) => {
       try {
-        await downloadFile(MediaUrl0, filePath, twilioEntry.accountSid, twilioEntry.authToken);
-        const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${fileName}`);
-        const fileType = MediaContentType0 || 'application/octet-stream';
+        const resposta = await generateBotResponse(
+          bot.name ?? 'Enki',
+          bot.persona ?? 'atendente simpática',
+          products,
+          bot.temperature ?? 0.5,
+          message,
+          {
+            name: bot.companyName ?? 'Empresa Genérica',
+            address: bot.address ?? 'Endereço não informado',
+            email: bot.email ?? 'email@empresa.com',
+            phone: bot.phone ?? '(00) 00000-0000',
+          }
+        );
 
-        await handleFileMessage(fileUrl, fileName, fileType);
+        if (!resposta) return;
+
+        await sendMessageToTwilio(
+          resposta,
+          From.replace('whatsapp:', ''),
+          twilioEntry.number,
+          twilioEntry.accountSid,
+          twilioEntry.authToken
+        );
+
+        io.to(roomId).emit('twilio message', {
+          sender: 'Bot',
+          message: resposta,
+        });
+
+        await saveMessage(roomId, 'Bot', resposta, true);
+      } catch (err) {
+        console.error('[BOT] Erro ao gerar resposta do bot:', err);
+      }
+    };
+
+    const handleFileMessage = async (fileUrl: string, fileName: string, fileType: string) => {
+      await saveMessage(roomId, sender, '', true, fileUrl, fileName, twilioOwner);
+      const socketEvent = fileType.startsWith('audio/') ? 'audio message' : 'file message';
+      io.to(roomId).emit(socketEvent, {
+        sender,
+        fileName,
+        fileUrl,
+        fileType,
+        source: 'twilio',
+      });
+    };
+
+    const connectedSocketId = getConnectedSocketId(roomId);
+
+    if (occupiedRooms.has(roomId)) {
+      if (MediaUrl0) {
+        const fileName = MediaUrl0.split('/').pop() || 'file_0';
+        const filePath = path.join(uploadDir, fileName);
+
+        try {
+          await downloadFile(MediaUrl0, filePath, twilioEntry.accountSid, twilioEntry.authToken);
+          const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${fileName}`);
+          const fileType = MediaContentType0 || 'application/octet-stream';
+
+          await handleFileMessage(fileUrl, fileName, fileType);
+          res.sendStatus(200);
+          return;
+        } catch (error) {
+          console.error('[FILE] Erro ao baixar arquivo:', error);
+          res.status(500).json({ error: 'Erro ao processar mídia.' });
+          return;
+        }
+      }
+
+      if (Body) {
+        io.to(roomId).emit('twilio message', { sender, message: Body });
+        await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
+        await handleBotAutoReply(Body);
         res.sendStatus(200);
         return;
-      } catch (error) {
-        console.error('[FILE] Erro ao baixar arquivo:', error);
-        res.status(500).json({ error: 'Erro ao processar mídia.' });
-        return;
       }
     }
 
-    if (Body) {
-      io.to(roomId).emit('twilio message', { sender, message: Body });
-      await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
-      await handleBotAutoReply(Body);
-      return;
-    }
-  }
+    const randomSocket = Array.from(io.sockets.sockets.values()).find((socket) => {
+      return !Array.from(socket.rooms).some((room) => occupiedRooms.has(room));
+    });
 
-  const randomSocket = Array.from(io.sockets.sockets.values()).find((socket) => {
-    return !Array.from(socket.rooms).some((room) => occupiedRooms.has(room));
-  });
+    if (randomSocket) {
+      await connectSocketToRoom(io, randomSocket, roomId);
+      simulateTwilioSocket(io, roomId);
 
-  if (randomSocket) {
-    await connectSocketToRoom(io, randomSocket, roomId);
-    simulateTwilioSocket(io, roomId);
+      if (MediaUrl0) {
+        const fileName = MediaUrl0.split('/').pop() || 'file_0';
+        const filePath = path.join(uploadDir, fileName);
 
-    if (MediaUrl0) {
-      const fileName = MediaUrl0.split('/').pop() || 'file_0';
-      const filePath = path.join(uploadDir, fileName);
+        try {
+          await downloadFile(MediaUrl0, filePath, twilioEntry.accountSid, twilioEntry.authToken);
+          const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${fileName}`);
+          const fileType = MediaContentType0 || 'application/octet-stream';
 
-      try {
-        await downloadFile(MediaUrl0, filePath, twilioEntry.accountSid, twilioEntry.authToken);
-        const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${fileName}`);
-        const fileType = MediaContentType0 || 'application/octet-stream';
+          await handleFileMessage(fileUrl, fileName, fileType);
 
-        await handleFileMessage(fileUrl, fileName, fileType);
+          if (Body) {
+            io.to(roomId).emit('twilio message', { sender, message: Body });
+            await saveMessage(roomId, sender, Body, true, fileUrl, fileName, twilioOwner);
+            await handleBotAutoReply(Body);
+          }
 
-        if (Body) {
-          io.to(roomId).emit('twilio message', { sender, message: Body });
-          await saveMessage(roomId, sender, Body, true, fileUrl, fileName, twilioOwner);
-          await handleBotAutoReply(Body);
+          res.sendStatus(200);
+          return;
+        } catch (error) {
+          console.error('[FILE] Erro ao baixar arquivo:', error);
+          res.status(500).json({ error: 'Erro ao processar mídia.' });
+          return;
         }
+      }
 
-        return;
-      } catch (error) {
-        console.error('[FILE] Erro ao baixar arquivo do Twilio:', error);
+      if (Body) {
+        io.to(roomId).emit('twilio message', { sender, message: Body });
+        await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
+        await handleBotAutoReply(Body);
+        res.sendStatus(200);
         return;
       }
     }
 
     if (Body) {
-      io.to(roomId).emit('twilio message', { sender, message: Body });
-      await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
-      await handleBotAutoReply(Body);
-      return;
+      addMessageToQueue(roomId, Body);
     }
-  }
 
-  if (Body) {
-    addMessageToQueue(roomId, Body);
+    logConnectedUsers();
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('[WEBHOOK] Erro inesperado:', error);
+    res.status(500).json({ error: 'Erro inesperado no webhook.' });
   }
-
-  logConnectedUsers();
 };

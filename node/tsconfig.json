@@ -1,13 +1,19 @@
-
 {
-    "compilerOptions": {
-      "target": "es2016",     
-      "module": "commonjs",                                
-      "esModuleInterop": true, 
-      "forceConsistentCasingInFileNames": true,           
-      "strict": true,
-      "moduleResolution": "node",
-      "allowSyntheticDefaultImports": true
-                                            
-    }
-  }
+  "compilerOptions": {
+    "target": "es2016",     
+    "module": "commonjs",                                
+    "esModuleInterop": true, 
+    "forceConsistentCasingInFileNames": true,           
+    "strict": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "typeRoots": [
+      "./node_modules/@types",  // Diretório padrão onde as dependências de tipos estão localizadas
+      "./src/types"  // Diretório onde você colocou o arquivo de declarações globais
+    ]
+  },
+  "include": [
+    "src/**/*.ts",  // Certifique-se de que todo o código TypeScript esteja sendo incluído
+    "src/types/**/*.d.ts"  // Incluir os arquivos de declaração de tipo globais
+  ]
+}
