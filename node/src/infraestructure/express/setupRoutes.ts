@@ -11,6 +11,11 @@ import { setupAudioRoutes, ensureUploadDirExists } from './routes/audioRoutes';
 import { handleSocketConnection } from './handleSocketConnection';
 import { authenticateJWT } from './middleware/authMiddleware';
 import messageRoutes from './routes/messageRoutes';
+import roomRoutes from '../express/routes/roomRoutes'; 
+import chatMessageRoutes from './routes/chatMessageRoutes';
+
+
+
 
 
 
@@ -88,6 +93,8 @@ export function setupRoutes(io: Server): Express {
     });
 
     // ⛓️ Integrando novas rotas
+    app.use('/api', chatMessageRoutes);
+    app.use('/api', roomRoutes);
     app.use('/api', productRoutes);           // Rota para produtos
     app.use('/api', botRoutes);               // Rota para bots
     app.use('/api', botInteractionRoutes);    // Rota para interação com o bot

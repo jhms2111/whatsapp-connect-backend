@@ -7,6 +7,7 @@ import { startSocketServer } from './infraestructure/express/serverSetup';
 import { connectToMongoDB } from './infraestructure/mongo/models/mongoose'; 
 
 
+
 (async () => {
 
     await connectToMongoDB();

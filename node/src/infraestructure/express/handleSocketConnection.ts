@@ -4,6 +4,9 @@ import path from 'path';
 import { saveMessage } from '../mongo/mongodbAdapter';
 import { sendMessageToTwilio } from '../../modules/twilio/adapter/config';
 import TwilioNumber from '../mongo/models/twilioNumberModel';
+import Message from '../../infraestructure/mongo/models/messageModel';
+
+
 
 import {
   User,
@@ -87,6 +90,31 @@ export const handleSocketConnection = (socket: Socket, io: IOServer) => {
       console.log(`📩 Mensagem adicionada à fila para a sala ${roomId}`);
     }
   });
+
+  socket.on('joinRoom', async (roomId: string) => {
+  console.log(`👥 Socket ${socket.id} entrou na sala ${roomId}`);
+  
+  socket.join(roomId);
+
+  const user = users.get(socket.id);
+  if (user) {
+    const userRooms = userRoomConnections.get(user.username) || [];
+    if (!userRooms.includes(roomId)) {
+      userRooms.push(roomId);
+      userRoomConnections.set(user.username, userRooms);
+    }
+  }
+
+  rooms.set(roomId, socket.id);
+  occupiedRooms.add(roomId);
+
+  socket.emit('roomJoined', roomId);
+
+  // ✅ Corrigido: buscar mensagens do model, não da função
+  const msgs = await Message.find({ roomId }).sort({ timestamp: 1 });
+  socket.emit('previousMessages', msgs);
+});
+
 
   socket.on('disconnect', () => {
     console.log('⛔ Socket desconectado:', socket.id);
