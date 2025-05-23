@@ -6,6 +6,9 @@ import { sendMessageToTwilio } from '../../modules/twilio/adapter/config';
 import TwilioNumber from '../mongo/models/twilioNumberModel';
 import Message from '../../infraestructure/mongo/models/messageModel';
 
+import { pausedRooms } from '../../modules/integration/application/roomManagement';
+
+
 
 
 import {
@@ -50,6 +53,69 @@ export const handleSocketConnection = (socket: Socket, io: IOServer) => {
 
   processMessageQueue(io);
   logConnectedUsers();
+
+
+
+
+
+
+
+
+// Evento para enviar a mensagem do humano para o WhatsApp
+socket.on('sendHumanMessage', async ({ roomId, message, sender }) => {
+  console.log(`Mensagem enviada pelo humano: roomId=${roomId}, message=${message}, sender=${sender}`);
+  if (!roomId || !message || !sender) {
+    console.error(`roomId, mensagem ou remetente inválidos. roomId: ${roomId}, mensagem: ${message}, remetente: ${sender}`);
+    return;
+  }
+
+  try {
+    // Separar os números do roomId
+    const [clientNumber, twilioNumber] = roomId.split('___'); // roomId ex: "34674458434___14155238886"
+    
+    if (!clientNumber || !twilioNumber) {
+      console.error(`roomId inválido: ${roomId}`);
+      return;
+    }
+
+    const twilioNumberDoc = await TwilioNumber.findOne({ owner: username });
+
+    if (!twilioNumberDoc) {
+      console.warn(`⚠️ Usuário ${username} não tem número Twilio configurado.`);
+    } else {
+      // Garantir que o número esteja no formato correto (E.164)
+      const toNumber = `+${clientNumber}`; // Destinatário
+        const fromNumber = `whatsapp:+${twilioNumber}`;  
+
+      // Enviar a mensagem via Twilio
+      await sendMessageToTwilio(
+        message,
+        toNumber,
+        fromNumber,
+        twilioNumberDoc.accountSid,
+        twilioNumberDoc.authToken
+      );
+
+      console.log('✅ Mensagem do humano enviada ao WhatsApp via Twilio:', message);
+    }
+  } catch (error) {
+    console.error('❌ Erro ao enviar mensagem do humano ao WhatsApp via Twilio:', error);
+  }
+
+  // Verificar se a sala está ocupada e salvar a mensagem
+  if (occupiedRooms.has(roomId)) {
+    await saveMessage(roomId, sender, message, true); // Mensagem salva com sucesso
+  } else {
+    addMessageToQueue(roomId, message, sender);
+    console.log(`📩 Mensagem do humano adicionada à fila para a sala ${roomId}`);
+  }
+});
+
+
+
+
+
+
 
   socket.on('messageToRoom', async ({ roomId, message, sender }) => {
     console.log(`Evento messageToRoom recebido: roomId=${roomId}, message=${message}, sender=${sender}`);
@@ -114,6 +180,17 @@ export const handleSocketConnection = (socket: Socket, io: IOServer) => {
   const msgs = await Message.find({ roomId }).sort({ timestamp: 1 });
   socket.emit('previousMessages', msgs);
 });
+
+socket.on('pauseBot', (roomId) => {
+  pausedRooms.add(roomId);
+  console.log(`🤖 Bot pausado para a sala ${roomId}`);
+});
+
+socket.on('resumeBot', (roomId) => {
+  pausedRooms.delete(roomId);
+  console.log(`🤖 Bot reativado para a sala ${roomId}`);
+});
+
 
 
   socket.on('disconnect', () => {

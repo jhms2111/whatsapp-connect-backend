@@ -3,6 +3,7 @@ import express, { Express, Request, Response } from 'express';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
+import bodyParser from 'body-parser';
 
 import { setupStaticRoutes } from './routes/staticRoutes';
 import { setupTwilioRoutes } from './routes/twilioRoutes';
@@ -13,6 +14,8 @@ import { authenticateJWT } from './middleware/authMiddleware';
 import messageRoutes from './routes/messageRoutes';
 import roomRoutes from '../express/routes/roomRoutes'; 
 import chatMessageRoutes from './routes/chatMessageRoutes';
+import sendWhatsapp from '../express/routes/sendWhatsapp'
+
 
 
 
@@ -45,13 +48,18 @@ export function setupRoutes(io: Server): Express {
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // ✅ Liberar todos os métodos
         credentials: true
     }));
+    
 
     ensureUploadDirExists();
 
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
+    app.use(bodyParser.json());
+    
+    
 
     app.use('/api', messageRoutes);
+    
 
     // 🔐 Login com JWT
     app.post('/login', async (req, res) => {
@@ -99,6 +107,7 @@ export function setupRoutes(io: Server): Express {
     app.use('/api', botRoutes);               // Rota para bots
     app.use('/api', botInteractionRoutes);    // Rota para interação com o bot
     app.use('/api', twilioNumberRoutes);      // ✅ Rota para números Twilio (por cliente)
+    app.use('/api', sendWhatsapp);  // A URL base para todas as rotas é /api
 
     // Rotas de recursos existentes
     setupStaticRoutes(app);

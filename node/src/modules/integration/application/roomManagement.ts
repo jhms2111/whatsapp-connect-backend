@@ -15,6 +15,9 @@ export const occupiedRooms: Set<string> = new Set();
 // Simulação de sockets do Twilio por sala
 export const twilioSockets: Map<string, string> = new Map();
 
+export const pausedRooms = new Set<string>();
+
+
 /**
  * Conecta o socket a uma sala, com verificação de sessão duplicada e recuperação de mensagens antigas.
  */

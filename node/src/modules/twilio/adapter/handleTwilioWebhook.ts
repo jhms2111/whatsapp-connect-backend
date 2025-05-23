@@ -1,4 +1,5 @@
-// src/modules/twilio/adapter/handleTwilioWebhook.ts
+// Atualização completa de handleTwilioWebhook.ts para corrigir pausa do bot
+
 import { Server as IOServer } from 'socket.io';
 import { Request, Response } from 'express';
 import path from 'path';
@@ -11,6 +12,7 @@ import { generateBotResponse } from '../../../modules/integration/Chatgpt/chatGp
 import {
   occupiedRooms,
   simulateTwilioSocket,
+  pausedRooms,
 } from '../../integration/application/roomManagement';
 import Product, { IProduct } from '../../../infraestructure/mongo/models/productModel';
 
@@ -95,16 +97,28 @@ export const handleTwilioWebhook = async (
       });
     };
 
+    // Marca a sala como ativa e simula Twilio se ainda não marcada
     if (!occupiedRooms.has(roomId)) {
       occupiedRooms.add(roomId);
       simulateTwilioSocket(io, roomId);
     }
 
-    if (MediaUrl0) await sendFile();
+    // Envia mensagem do cliente para a sala
     if (Body) {
       io.to(roomId).emit('twilio message', { sender, message: Body });
       await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
+    }
+
+    // Envia arquivo (imagem/áudio)
+    if (MediaUrl0) {
+      await sendFile();
+    }
+
+    // Somente responde com o bot se não estiver pausado
+    if (Body && !pausedRooms.has(roomId)) {
       await replyWithBot(Body);
+    } else if (pausedRooms.has(roomId)) {
+      console.log(`🤖 Bot está pausado para a sala ${roomId}, nenhuma resposta será enviada.`);
     }
 
     res.sendStatus(200);

@@ -15,5 +15,5 @@
   "include": [
     "src/**/*.ts",  // Certifique-se de que todo o código TypeScript esteja sendo incluído
     "src/types/**/*.d.ts"  // Incluir os arquivos de declaração de tipo globais
-, "src/infraestructure/express/routes/sendWhatsapp.js", "src/infraestructure/express/routes/sendWhatsapp.js"  ]
+, "src/infraestructure/express/routes/sendWhatsapp.ts", "src/infraestructure/express/routes/sendWhatsapp.ts"  ]
 }
