@@ -15,6 +15,7 @@ import messageRoutes from './routes/messageRoutes';
 import roomRoutes from '../express/routes/roomRoutes'; 
 import chatMessageRoutes from './routes/chatMessageRoutes';
 import sendWhatsapp from '../express/routes/sendWhatsapp'
+import historyRoutes from '../../infraestructure/express/routes/historyRoutes'
 
 
 
@@ -108,6 +109,7 @@ export function setupRoutes(io: Server): Express {
     app.use('/api', botInteractionRoutes);    // Rota para interação com o bot
     app.use('/api', twilioNumberRoutes);      // ✅ Rota para números Twilio (por cliente)
     app.use('/api', sendWhatsapp);  // A URL base para todas as rotas é /api
+    app.use('/api' , historyRoutes);
 
     // Rotas de recursos existentes
     setupStaticRoutes(app);

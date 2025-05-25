@@ -1,5 +1,3 @@
-// Atualização completa de handleTwilioWebhook.ts para corrigir pausa do bot
-
 import { Server as IOServer } from 'socket.io';
 import { Request, Response } from 'express';
 import path from 'path';
@@ -8,6 +6,7 @@ import { saveMessage } from '../../../infraestructure/mongo/mongodbAdapter';
 import { sendMessageToTwilio } from '../../../modules/twilio/adapter/config';
 import Bot from '../../../infraestructure/mongo/models/botModel';
 import TwilioNumber from '../../../infraestructure/mongo/models/twilioNumberModel';
+import Message from '../../../infraestructure/mongo/models/messageModel';
 import { generateBotResponse } from '../../../modules/integration/Chatgpt/chatGptAdapter';
 import {
   occupiedRooms,
@@ -86,7 +85,10 @@ export const handleTwilioWebhook = async (
       const fileType = MediaContentType0 || 'application/octet-stream';
 
       await saveMessage(roomId, sender, '', true, fileUrl, fileName, twilioOwner);
-      const socketEvent = fileType.startsWith('audio/') ? 'audio message' : 'file message';
+
+      const socketEvent = fileType.startsWith('audio/')
+        ? 'audio message'
+        : 'file message';
 
       io.to(roomId).emit(socketEvent, {
         sender,
@@ -95,26 +97,43 @@ export const handleTwilioWebhook = async (
         fileType,
         source: 'twilio',
       });
+
+      // 🔔 Verifica se é a primeira mensagem da sala
+      const mensagens = await Message.find({ roomId });
+      if (mensagens.length === 1) {
+        io.emit('historicalRoomUpdated', {
+  roomId,
+  lastMessage: Body || fileName,
+  lastTimestamp: new Date()
+});
+
+      }
     };
 
-    // Marca a sala como ativa e simula Twilio se ainda não marcada
     if (!occupiedRooms.has(roomId)) {
       occupiedRooms.add(roomId);
       simulateTwilioSocket(io, roomId);
     }
 
-    // Envia mensagem do cliente para a sala
     if (Body) {
       io.to(roomId).emit('twilio message', { sender, message: Body });
       await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
+
+      // 🔔 Verifica se é a primeira mensagem da sala
+      const mensagens = await Message.find({ roomId });
+      if (mensagens.length === 1) {
+        io.emit('newHistoricalRoom', {
+          _id: roomId,
+          lastMessage: Body,
+          lastTimestamp: mensagens[0].timestamp || new Date(),
+        });
+      }
     }
 
-    // Envia arquivo (imagem/áudio)
     if (MediaUrl0) {
       await sendFile();
     }
 
-    // Somente responde com o bot se não estiver pausado
     if (Body && !pausedRooms.has(roomId)) {
       await replyWithBot(Body);
     } else if (pausedRooms.has(roomId)) {
