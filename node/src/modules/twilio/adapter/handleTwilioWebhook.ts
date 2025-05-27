@@ -1,3 +1,5 @@
+// src/integration/handleTwilioWebhook.ts
+
 import { Server as IOServer } from 'socket.io';
 import { Request, Response } from 'express';
 import path from 'path';
@@ -74,6 +76,12 @@ export const handleTwilioWebhook = async (
 
       io.to(roomId).emit('twilio message', { sender: 'Bot', message: resposta });
       await saveMessage(roomId, 'Bot', resposta, true);
+
+      io.emit('historicalRoomUpdated', {
+        roomId,
+        lastMessage: resposta,
+        lastTimestamp: new Date()
+      });
     };
 
     const sendFile = async () => {
@@ -86,28 +94,20 @@ export const handleTwilioWebhook = async (
 
       await saveMessage(roomId, sender, '', true, fileUrl, fileName, twilioOwner);
 
-      const socketEvent = fileType.startsWith('audio/')
-        ? 'audio message'
-        : 'file message';
-
+      const socketEvent = fileType.startsWith('audio/') ? 'audio message' : 'file message';
       io.to(roomId).emit(socketEvent, {
         sender,
         fileName,
         fileUrl,
         fileType,
-        source: 'twilio',
+        source: 'twilio'
       });
 
-      // 🔔 Verifica se é a primeira mensagem da sala
-      const mensagens = await Message.find({ roomId });
-      if (mensagens.length === 1) {
-        io.emit('historicalRoomUpdated', {
-  roomId,
-  lastMessage: Body || fileName,
-  lastTimestamp: new Date()
-});
-
-      }
+      io.emit('historicalRoomUpdated', {
+        roomId,
+        lastMessage: fileName,
+        lastTimestamp: new Date()
+      });
     };
 
     if (!occupiedRooms.has(roomId)) {
@@ -119,15 +119,11 @@ export const handleTwilioWebhook = async (
       io.to(roomId).emit('twilio message', { sender, message: Body });
       await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
 
-      // 🔔 Verifica se é a primeira mensagem da sala
-      const mensagens = await Message.find({ roomId });
-      if (mensagens.length === 1) {
-        io.emit('newHistoricalRoom', {
-          _id: roomId,
-          lastMessage: Body,
-          lastTimestamp: mensagens[0].timestamp || new Date(),
-        });
-      }
+      io.emit('historicalRoomUpdated', {
+        roomId,
+        lastMessage: Body,
+        lastTimestamp: new Date()
+      });
     }
 
     if (MediaUrl0) {
