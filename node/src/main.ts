@@ -8,6 +8,7 @@ import { connectToMongoDB } from './infraestructure/mongo/models/mongoose';
 
 
 
+
 (async () => {
 
     await connectToMongoDB();
