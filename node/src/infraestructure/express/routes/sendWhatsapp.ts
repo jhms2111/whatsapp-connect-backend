@@ -24,18 +24,16 @@ router.post('/send-human-message', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Número Twilio não encontrado para o usuário.' });
     }
 
-    const { number: fromNumber, accountSid, authToken } = twilioEntry;
-    const [clientNumber, twilioNumber] = roomId.split('___');
+    const { number: fromNumber } = twilioEntry;
+    const [clientNumber] = roomId.split('___');
 
+    // ✅ Agora usa os dados do .env diretamente
     await sendMessageToTwilio(
       message,
       clientNumber,
-      fromNumber,
-      accountSid,
-      authToken
+      fromNumber
     );
 
-    // Salvar e emitir
     await saveMessage(roomId, sender, message, true);
 
     io.to(roomId).emit('twilio message', {

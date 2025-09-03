@@ -69,10 +69,9 @@ export const handleTwilioWebhook = async (
       await sendMessageToTwilio(
         resposta,
         From.replace('whatsapp:', ''),
-        To,
-        twilioEntry.accountSid,
-        twilioEntry.authToken
+        To
       );
+
 
       io.to(roomId).emit('twilio message', { sender: 'Bot', message: resposta });
       await saveMessage(roomId, 'Bot', resposta, true);
@@ -88,7 +87,9 @@ export const handleTwilioWebhook = async (
       const fileName = MediaUrl0.split('/').pop() || 'file_0';
       const filePath = path.join(uploadDir, fileName);
 
-      await downloadFile(MediaUrl0, filePath, twilioEntry.accountSid, twilioEntry.authToken);
+      await downloadFile(MediaUrl0, filePath);
+
+
       const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${fileName}`);
       const fileType = MediaContentType0 || 'application/octet-stream';
 

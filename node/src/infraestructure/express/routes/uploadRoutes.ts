@@ -1,23 +1,23 @@
-
 import express, { Express, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { Server } from 'socket.io';
+
 import { saveMessage } from '../../mongo/mongodbAdapter';
 import { sendMessageToTwilio } from '../../../modules/twilio/adapter/config';
-import TwilioNumber from '../../mongo/models/twilioNumberModel'; // ✅ necessário para pegar o número do usuário
+import TwilioNumber from '../../mongo/models/twilioNumberModel';
 
 const uploadDir = path.resolve(__dirname, '..', '..', '..', '..', 'uploads');
 
-// Garante que o diretório de uploads exista
+// 🔧 Garante que o diretório de uploads exista
 export function ensureUploadDirExists() {
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
 }
 
-// Configuração do Multer
+// 📁 Configuração do Multer
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     ensureUploadDirExists();
@@ -63,27 +63,25 @@ export function setupUploadRoutes(app: Express, io: Server): void {
 
     const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${file.filename}`);
 
-
     try {
-      // 🧠 Busca número Twilio do sender
+      // 🔎 Busca número Twilio pelo username (owner)
       const twilioEntry = await TwilioNumber.findOne({ owner: sender });
       if (!twilioEntry) {
         return res.status(404).json({ error: `Usuário ${sender} não possui número Twilio.` });
       }
 
-      // 💾 Salva a mensagem do arquivo
+      // 💾 Salva mensagem no histórico
       await saveMessage(roomId, sender, '', true, fileUrl, file.originalname);
 
-      // 📤 Envia mensagem via Twilio com o arquivo
+      // 📤 Envia mensagem via Twilio com o arquivo (usando variáveis de ambiente)
       await sendMessageToTwilio(
         `Arquivo recebido: ${file.originalname}`,
         roomId,
         twilioEntry.number,
-        twilioEntry.accountSid,
-        twilioEntry.authToken
+        fileUrl // Enviar com mídia
       );
 
-      // 🔁 Emite mensagem para o front
+      // 🔁 Emite para o front-end via socket
       io.to(roomId).emit('file message', {
         sender,
         fileName: file.originalname,

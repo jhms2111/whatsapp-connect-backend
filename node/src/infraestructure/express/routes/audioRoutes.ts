@@ -1,17 +1,15 @@
-
-// src/infraestructure/express/routes/audioRoutes.ts
 import express, { Express, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
 import { Server } from 'socket.io';
+
 import { saveMessage } from '../../mongo/mongodbAdapter';
 import { sendMessageToTwilio } from '../../../modules/twilio/adapter/config';
 import TwilioNumber from '../../mongo/models/twilioNumberModel';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'; // fallback opcional
-
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
 const ffmpegPath = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '..', '..', 'bin', 'ffmpeg');
 const ffprobePath = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', '..', '..', 'bin', 'ffprobe');
@@ -74,7 +72,6 @@ export function setupAudioRoutes(app: Express, io: Server): void {
     }
 
     const originalFileUrl = encodeURI(`${BASE_URL}/uploads/${file.filename}`);
-
     console.log('URL do arquivo original:', originalFileUrl);
 
     const mp3FileName = `${file.filename.replace(/\.[^/.]+$/, '')}.mp3`;
@@ -89,27 +86,25 @@ export function setupAudioRoutes(app: Express, io: Server): void {
         console.log('Conversão concluída.');
 
         try {
-          fs.unlinkSync(file.path); // remove o arquivo original
+          fs.unlinkSync(file.path); // Remove o arquivo original .ogg
 
           const audioUrl = encodeURI(`${BASE_URL}/uploads/${mp3FileName}`);
           console.log('URL do áudio MP3:', audioUrl);
 
           await saveMessage(roomId, sender, '', true, audioUrl, mp3FileName);
 
-          // 🟡 Extrai número do cliente (antes do pipe) e procura número Twilio baseado no sender
           const [clientNumber] = roomId.split('|');
 
           const twilioNumber = await TwilioNumber.findOne({ owner: sender });
           if (!twilioNumber) {
             console.warn(`⚠️ Sender ${sender} não tem número Twilio configurado.`);
           } else {
+            // ✅ Agora usa os dados do .env
             await sendMessageToTwilio(
-              '', // mensagem de texto vazia
-              clientNumber, // destinatário (cliente)
+              '', // sem texto
+              clientNumber,
               twilioNumber.number,
-              twilioNumber.accountSid,
-              twilioNumber.authToken,
-              audioUrl // ✅ URL do áudio como mídia
+              audioUrl // mídia
             );
           }
 
@@ -121,8 +116,8 @@ export function setupAudioRoutes(app: Express, io: Server): void {
 
           res.json({ fileName: mp3FileName, fileUrl: audioUrl });
         } catch (error) {
-          console.error('Erro ao salvar mensagem no MongoDB ou enviar via Twilio:', error);
-          res.status(500).json({ error: 'Erro ao salvar mensagem ou enviar via Twilio' });
+          console.error('Erro ao salvar mensagem ou enviar via Twilio:', error);
+          res.status(500).json({ error: 'Erro ao processar o áudio.' });
         }
       })
       .on('error', (err) => {

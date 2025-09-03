@@ -1,5 +1,11 @@
-
+// src/modules/twilio/adapter/config.ts
 import twilio from 'twilio';
+
+// Cria o client global uma vez com dados do .env
+const client = twilio(
+  process.env.TWILIO_ACCOUNT_SID!,
+  process.env.TWILIO_AUTH_TOKEN!
+);
 
 /**
  * Envia uma mensagem via Twilio com os dados fornecidos
@@ -7,21 +13,15 @@ import twilio from 'twilio';
  * @param message - O conteúdo da mensagem
  * @param roomId - Número do cliente (ex: +55999999999)
  * @param fromNumber - Número do Twilio do remetente (ex: whatsapp:+14155238886)
- * @param accountSid - SID da conta Twilio
- * @param authToken - Token da conta Twilio
  * @param mediaUrl - (opcional) URL de mídia a ser enviada
  */
 export async function sendMessageToTwilio(
   message: string,
   roomId: string,
   fromNumber: string,
-  accountSid: string,
-  authToken: string,
   mediaUrl?: string
 ) {
   try {
-    const client = twilio(accountSid, authToken);
-
     const toNumber = `whatsapp:${roomId}`;
     const mediaUrls = mediaUrl ? [mediaUrl] : [];
 
@@ -29,7 +29,7 @@ export async function sendMessageToTwilio(
       body: message,
       from: fromNumber,
       to: toNumber,
-      mediaUrl: mediaUrls,
+      mediaUrl: mediaUrls.length ? mediaUrls : undefined,
     });
 
     console.log(`✅ Mensagem enviada via Twilio (${roomId}): ${msg.sid}`);

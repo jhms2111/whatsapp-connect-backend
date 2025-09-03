@@ -1,8 +1,24 @@
+// src/modules/twilio/adapter/downloadFile.ts
+
 import axios from 'axios';
 import fs from 'fs';
+import dotenv from 'dotenv';
 
-export const downloadFile = async (url: string, dest: string, accountSid: string, authToken: string) => {
+// Garante que as variáveis do .env estejam carregadas
+dotenv.config();
+
+/**
+ * Baixa um arquivo da URL fornecida e salva no destino especificado.
+ * A autenticação usa o TWILIO_ACCOUNT_SID e TWILIO_AUTH_TOKEN do .env.
+ * 
+ * @param url - URL do arquivo (ex: Twilio MediaUrl)
+ * @param dest - Caminho local onde o arquivo será salvo
+ */
+export const downloadFile = async (url: string, dest: string): Promise<void> => {
   try {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID!;
+    const authToken = process.env.TWILIO_AUTH_TOKEN!;
+
     const response = await axios({
       url,
       method: 'GET',
@@ -19,7 +35,7 @@ export const downloadFile = async (url: string, dest: string, accountSid: string
       file.on('error', (err) => reject(err));
     });
   } catch (error) {
-    console.error('Erro ao baixar o arquivo:', error);
+    console.error('❌ Erro ao baixar o arquivo:', error);
     throw error;
   }
 };
