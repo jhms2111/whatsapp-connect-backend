@@ -22,6 +22,8 @@ import botDeleteRoutes from './routes/botDeleteRoutes';
 import botEditRoutes from './routes/botEditRoutes';
 import numberRequestRoutes from './routes/numberRequestRoutes';
 import adminNumberRoutes from './routes/adminNumberRoutes';
+import twilioNumberRoutes from './routes/twilioNumberRoutes'
+
 
 // ⚠️ Stripe: webhook (usa express.raw) deve ser montado ANTES do express.json()
 import stripeWebhook from './routes/stripeWebhook';
@@ -42,6 +44,8 @@ import { router as botInteractionRoutes } from './routes/botInteractionRoutes';
 import bcrypt from 'bcryptjs';
 import User from '../mongo/models/userModel';
 
+
+
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
 
 // Usuários estáticos de teste (fallback)
@@ -49,6 +53,7 @@ type StaticUser = { username: string; password: string; role: 'admin' | 'user' }
 const STATIC_USERS: StaticUser[] = [
   { username: 'joaohenrique', password: '123456', role: 'admin' }, // admin geral (teste)
   { username: 'cliente1',     password: 'senha123', role: 'user'  }, // usuário comum (teste)
+  { username: 'cliente2',     password: 'senha123', role: 'user'  }, // usuário comum (teste)
 ];
 
 export function setupRoutes(io: Server): Express {
@@ -158,6 +163,7 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', productEditRoutes);       // Edição de produtos
   app.use('/api', botDeleteRoutes);
   app.use('/api', botEditRoutes);
+  app.use('/api', twilioNumberRoutes);
 
   // Fluxo de pedido de número + Stripe (checkout normal após parsers)
   app.use('/api', numberRequestRoutes);
