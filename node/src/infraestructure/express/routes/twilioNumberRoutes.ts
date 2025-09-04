@@ -11,8 +11,9 @@ const router = Router();
  */
 
 // Cadastrar novo número Twilio
+// src/infraestructure/express/routes/twilioNumberRoutes.ts
 router.post('/twilio-number', authenticateJWT, async (req: Request, res: Response) => {
-  const { number, accountSid, authToken } = req.body;
+  const { number } = req.body;
   const username = (req as any).user?.username;
 
   if (!username) {
@@ -28,8 +29,6 @@ router.post('/twilio-number', authenticateJWT, async (req: Request, res: Respons
     const newNumber = new TwilioNumber({
       owner: username,
       number,
-      accountSid,
-      authToken,
     });
 
     await newNumber.save();
@@ -39,6 +38,7 @@ router.post('/twilio-number', authenticateJWT, async (req: Request, res: Respons
     res.status(500).json({ error: 'Erro ao cadastrar número' });
   }
 });
+
 
 // Listar números do cliente logado
 router.get('/twilio-number', authenticateJWT, async (req: Request, res: Response) => {

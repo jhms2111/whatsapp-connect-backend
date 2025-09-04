@@ -23,6 +23,8 @@ import botEditRoutes from './routes/botEditRoutes';
 import numberRequestRoutes from './routes/numberRequestRoutes';
 import adminNumberRoutes from './routes/adminNumberRoutes';
 import twilioNumberRoutes from './routes/twilioNumberRoutes'
+import adminTwilioNumberRoutes from './routes/adminTwilioNumberRoutes';
+
 
 
 // ⚠️ Stripe: webhook (usa express.raw) deve ser montado ANTES do express.json()
@@ -164,6 +166,7 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', botDeleteRoutes);
   app.use('/api', botEditRoutes);
   app.use('/api', twilioNumberRoutes);
+  app.use('/api', adminTwilioNumberRoutes);
 
   // Fluxo de pedido de número + Stripe (checkout normal após parsers)
   app.use('/api', numberRequestRoutes);
