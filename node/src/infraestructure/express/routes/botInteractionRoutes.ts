@@ -22,7 +22,11 @@ interface CompanyData {
 
 router.post('/bot/:botId/message', async (req: Request, res: Response) => {
   const { botId } = req.params;
-  const { userMessage } = req.body;
+  const { userMessage, clientId } = req.body; // ✅ clientId necessário
+
+  if (!clientId) {
+    return res.status(400).json({ error: 'clientId é obrigatório' });
+  }
 
   try {
     const bot = await Bot.findById(botId).populate('product');
@@ -35,7 +39,7 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Nenhum produto vinculado a este bot.' });
     }
 
-    // 💡 Aqui convertemos o array para o tipo certo de forma segura
+    // 💡 Converte o array de produtos de forma segura
     const populatedProducts = (Array.isArray(bot.product) ? bot.product : [bot.product]) as unknown as Product[];
 
     const companyData: CompanyData = {
@@ -45,13 +49,15 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       phone: bot.phone ?? '(00) 00000-0000',
     };
 
+    // ✅ Chamando com 7 argumentos (adicionado clientId)
     const botResponse = await generateBotResponse(
       bot.name ?? 'Enki',
       bot.persona ?? 'simples e simpática',
       populatedProducts,
       bot.temperature ?? 0.5,
       userMessage,
-      companyData
+      companyData,
+      clientId // 🔹 NOVO
     );
 
     res.status(200).json({ message: botResponse });

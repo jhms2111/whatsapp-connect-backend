@@ -26,12 +26,17 @@ export const handleTwilioWebhook = async (
 ): Promise<void> => {
   const { From, To, Body, MediaUrl0, MediaContentType0 } = req.body;
 
+  // Limpeza de números
   const fromClean = From.replace('whatsapp:', '').replace(/\W/g, '');
   const toClean = To.replace('whatsapp:', '').replace(/\W/g, '');
   const roomId = `${fromClean}___${toClean}`;
   const sender = `Socket-twilio-${roomId}`;
 
+  // Definindo clientId único para memória do cliente
+  const clientId = fromClean;
+
   try {
+    // Verifica se o número Twilio é autorizado
     const twilioEntry = await TwilioNumber.findOne({ number: To });
     if (!twilioEntry) {
       res.status(404).json({ error: 'Número não autorizado.' });
@@ -39,16 +44,20 @@ export const handleTwilioWebhook = async (
     }
 
     const twilioOwner = twilioEntry.owner;
+
+    // Busca bot do proprietário
     const bot = await Bot.findOne({ owner: twilioOwner }).populate<{ product: IProduct | IProduct[] }>('product');
     if (!bot) {
       res.status(404).send();
       return;
     }
 
+    // Normaliza produtos
     const products: IProduct[] = Array.isArray(bot.product)
       ? bot.product as IProduct[]
       : [bot.product as IProduct];
 
+    // Função para gerar resposta do bot
     const replyWithBot = async (message: string) => {
       const resposta = await generateBotResponse(
         bot.name ?? 'Enki',
@@ -61,7 +70,8 @@ export const handleTwilioWebhook = async (
           address: bot.address ?? 'Endereço',
           email: bot.email ?? 'email@empresa.com',
           phone: bot.phone ?? '(00) 00000-0000',
-        }
+        },
+        clientId // ✅ 7º argumento corrigido
       );
 
       if (!resposta) return;
@@ -72,7 +82,7 @@ export const handleTwilioWebhook = async (
         To
       );
 
-
+      // Envia mensagem via socket.io
       io.to(roomId).emit('twilio message', { sender: 'Bot', message: resposta });
       await saveMessage(roomId, 'Bot', resposta, true);
 
@@ -83,12 +93,12 @@ export const handleTwilioWebhook = async (
       });
     };
 
+    // Função para envio de arquivos
     const sendFile = async () => {
       const fileName = MediaUrl0.split('/').pop() || 'file_0';
       const filePath = path.join(uploadDir, fileName);
 
       await downloadFile(MediaUrl0, filePath);
-
 
       const fileUrl = encodeURI(`${process.env.BASE_URL}/uploads/${fileName}`);
       const fileType = MediaContentType0 || 'application/octet-stream';
@@ -111,11 +121,13 @@ export const handleTwilioWebhook = async (
       });
     };
 
+    // Marca a sala como ocupada
     if (!occupiedRooms.has(roomId)) {
       occupiedRooms.add(roomId);
       simulateTwilioSocket(io, roomId);
     }
 
+    // Salva mensagem de texto recebida
     if (Body) {
       io.to(roomId).emit('twilio message', { sender, message: Body });
       await saveMessage(roomId, sender, Body, true, undefined, undefined, twilioOwner);
@@ -127,19 +139,21 @@ export const handleTwilioWebhook = async (
       });
     }
 
+    // Salva arquivo se houver
     if (MediaUrl0) {
       await sendFile();
     }
 
+    // Responde via bot se a sala não estiver pausada
     if (Body && !pausedRooms.has(roomId)) {
       await replyWithBot(Body);
     } else if (pausedRooms.has(roomId)) {
       console.log(`🤖 Bot está pausado para a sala ${roomId}, nenhuma resposta será enviada.`);
     }
 
-    res.sendStatus(200);
+   // res.sendStatus(200);
   } catch (error) {
     console.error('[WEBHOOK] Erro inesperado:', error);
-    res.status(500).json({ error: 'Erro inesperado no webhook.' });
+  //  res.status(500).json({ error: 'Erro inesperado no webhook.' });
   }
 };

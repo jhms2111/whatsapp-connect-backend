@@ -25,6 +25,8 @@ import adminNumberRoutes from './routes/adminNumberRoutes';
 import twilioNumberRoutes from './routes/twilioNumberRoutes'
 import adminTwilioNumberRoutes from './routes/adminTwilioNumberRoutes';
 
+import appointmentRoutes from '../express/routes/appointmentRoutes'
+
 
 
 // ⚠️ Stripe: webhook (usa express.raw) deve ser montado ANTES do express.json()
@@ -172,6 +174,8 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', numberRequestRoutes);
   app.use('/api', adminNumberRoutes);
   app.use('/api', billingRoutes);
+
+  app.use('/api', appointmentRoutes);
 
   // Rotas de recursos existentes
   setupStaticRoutes(app);
