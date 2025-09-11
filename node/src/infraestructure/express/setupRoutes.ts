@@ -26,6 +26,15 @@ import twilioNumberRoutes from './routes/twilioNumberRoutes'
 import adminTwilioNumberRoutes from './routes/adminTwilioNumberRoutes';
 
 import appointmentRoutes from '../express/routes/appointmentRoutes'
+import appointmentV2Routes from './routes/appointmentV2Routes';
+
+
+import professionalRoutes from './routes/professionalRoutes';
+import serviceRoutes from './routes/serviceRoutes';
+import availabilityTemplateRoutes from './routes/availabilityTemplateRoutes';
+import assignmentRoutes from './routes/assignmentRoutes';
+import timeOffRoutes from './routes/timeOffRoutes';
+import slotRoutes from './routes/slotRoutes';
 
 
 
@@ -176,6 +185,15 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', billingRoutes);
 
   app.use('/api', appointmentRoutes);
+  app.use('/api', appointmentV2Routes);
+  
+
+  app.use('/api', professionalRoutes);
+  app.use('/api', serviceRoutes);
+  app.use('/api', availabilityTemplateRoutes);
+  app.use('/api', assignmentRoutes);
+  app.use('/api', timeOffRoutes);
+  app.use('/api', slotRoutes);
 
   // Rotas de recursos existentes
   setupStaticRoutes(app);

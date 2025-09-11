@@ -1,3 +1,4 @@
+//botInteractionRoutes.ts
 import { Router, Request, Response } from 'express';
 import { generateBotResponse } from '../../../modules/integration/Chatgpt/chatGptAdapter';
 import Bot from '../../mongo/models/botModel';
@@ -18,6 +19,7 @@ interface CompanyData {
   address: string;
   email: string;
   phone: string;
+  about?: string; // ✅ novo campo
 }
 
 router.post('/bot/:botId/message', async (req: Request, res: Response) => {
@@ -47,9 +49,10 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       address: bot.address ?? 'Endereço não informado',
       email: bot.email ?? 'email@empresa.com',
       phone: bot.phone ?? '(00) 00000-0000',
+      about: bot.about ?? undefined, // ✅ inclui "Quem somos"
     };
 
-    // ✅ Chamando com 7 argumentos (adicionado clientId)
+    // ✅ Chamando com 7 argumentos (inclui clientId)
     const botResponse = await generateBotResponse(
       bot.name ?? 'Enki',
       bot.persona ?? 'simples e simpática',
@@ -57,7 +60,7 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       bot.temperature ?? 0.5,
       userMessage,
       companyData,
-      clientId // 🔹 NOVO
+      clientId
     );
 
     res.status(200).json({ message: botResponse });

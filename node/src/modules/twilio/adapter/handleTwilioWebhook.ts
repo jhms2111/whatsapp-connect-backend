@@ -1,5 +1,4 @@
 // src/integration/handleTwilioWebhook.ts
-
 import { Server as IOServer } from 'socket.io';
 import { Request, Response } from 'express';
 import path from 'path';
@@ -27,8 +26,8 @@ export const handleTwilioWebhook = async (
   const { From, To, Body, MediaUrl0, MediaContentType0 } = req.body;
 
   // Limpeza de números
-  const fromClean = From.replace('whatsapp:', '').replace(/\W/g, '');
-  const toClean = To.replace('whatsapp:', '').replace(/\W/g, '');
+  const fromClean = String(From || '').replace('whatsapp:', '').replace(/\W/g, '');
+  const toClean = String(To || '').replace('whatsapp:', '').replace(/\W/g, '');
   const roomId = `${fromClean}___${toClean}`;
   const sender = `Socket-twilio-${roomId}`;
 
@@ -54,7 +53,7 @@ export const handleTwilioWebhook = async (
 
     // Normaliza produtos
     const products: IProduct[] = Array.isArray(bot.product)
-      ? bot.product as IProduct[]
+      ? (bot.product as IProduct[])
       : [bot.product as IProduct];
 
     // Função para gerar resposta do bot
@@ -70,8 +69,9 @@ export const handleTwilioWebhook = async (
           address: bot.address ?? 'Endereço',
           email: bot.email ?? 'email@empresa.com',
           phone: bot.phone ?? '(00) 00000-0000',
+          about: bot.about ?? 'Somos uma empresa focada em atender você com excelência.' // ✅ inclui "Quem somos"
         },
-        clientId // ✅ 7º argumento corrigido
+        clientId
       );
 
       if (!resposta) return;
@@ -95,6 +95,8 @@ export const handleTwilioWebhook = async (
 
     // Função para envio de arquivos
     const sendFile = async () => {
+      if (!MediaUrl0) return;
+
       const fileName = MediaUrl0.split('/').pop() || 'file_0';
       const filePath = path.join(uploadDir, fileName);
 
@@ -151,9 +153,10 @@ export const handleTwilioWebhook = async (
       console.log(`🤖 Bot está pausado para a sala ${roomId}, nenhuma resposta será enviada.`);
     }
 
-   // res.sendStatus(200);
+    // Dica: você pode liberar o 200 aqui se preferir confirmação imediata ao Twilio
+    // res.sendStatus(200);
   } catch (error) {
     console.error('[WEBHOOK] Erro inesperado:', error);
-  //  res.status(500).json({ error: 'Erro inesperado no webhook.' });
+    // res.status(500).json({ error: 'Erro inesperado no webhook.' });
   }
 };

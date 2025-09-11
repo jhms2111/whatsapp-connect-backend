@@ -1,14 +1,16 @@
-import { Router, Request, Response } from 'express'; // Importando Router, Request e Response
-import Bot from '../../mongo/models/botModel'; // Importando o modelo Bot
-import { authenticateJWT } from '../middleware/authMiddleware'; // Importando o middleware de autenticação
+//botEditRoutes.ts
+import { Router, Request, Response } from 'express';
+import Bot from '../../mongo/models/botModel';
+import { authenticateJWT } from '../middleware/authMiddleware';
 
-const router = Router(); // Criando uma instância do Router
+const router = Router();
 
 // Editar bot (rota separada)
 router.put('/bot/edit/:id', authenticateJWT, async (req: Request, res: Response) => {
   const {
     name,
     persona,
+    about,         // ✅ novo campo
     temperature,
     product,
     companyName,
@@ -25,6 +27,7 @@ router.put('/bot/edit/:id', authenticateJWT, async (req: Request, res: Response)
 
     bot.name = name;
     bot.persona = persona;
+    bot.about = about; // ✅ persiste "Quem somos"
     bot.temperature = temperature;
     bot.product = Array.isArray(product) ? product : [product];
     bot.companyName = companyName;
@@ -41,5 +44,4 @@ router.put('/bot/edit/:id', authenticateJWT, async (req: Request, res: Response)
   }
 });
 
-
-export default router; // Exportando o router
+export default router;

@@ -21,6 +21,7 @@ interface CompanyData {
   address: string;
   email: string;
   phone: string;
+  about?: string; // ✅ novo campo "Quem somos"
 }
 
 // ===================== FUNÇÕES AUXILIARES =====================
@@ -207,13 +208,21 @@ export const generateBotResponse = async (
     .map(p => `📦 ${p.name} - ${p.description} (Preço: R$${p.priceMin} - R$${p.priceMax})`)
     .join('\n');
 
-  // 4️⃣ Monta prompt para GPT
+  // 4️⃣ Monta bloco da empresa com "Quem somos" se existir
+  const companyBlock = [
+    `🏢 ${companyData.name}`,
+    `📍 ${companyData.address}`,
+    `📧 ${companyData.email}`,
+    `📞 ${companyData.phone}`,
+    companyData.about ? `ℹ️ Quem somos: ${companyData.about}` : null, // ✅ usa "about" quando presente
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  // 5️⃣ Monta prompt para GPT
   const prompt = `
 🧠 Contexto da empresa:
-🏢 ${companyData.name}
-📍 ${companyData.address}
-📧 ${companyData.email}
-📞 ${companyData.phone}
+${companyBlock}
 
 🛒 Produtos disponíveis:
 ${productDescriptions}
@@ -225,12 +234,10 @@ ${memoryContext}
 - Se houver data/hora, apenas repita no formato dd/mm/aaaa hh. Essa será uma mensagem "especial".
 - Pergunte confirmação de agendamento apenas quando necessário.
 
-🗣️ Cliente: "${userInput}"
-
 Responda como ${botName}, persona: ${persona}.
-`;
+`.trim();
 
-  // 5️⃣ Gera resposta do GPT
+  // 6️⃣ Gera resposta do GPT
   const response = await openai.chat.completions.create({
     model: 'gpt-4-turbo',
     messages: [
@@ -244,10 +251,10 @@ Responda como ${botName}, persona: ${persona}.
   const botResponse = response.choices[0].message?.content;
   if (!botResponse) throw new Error('GPT response was empty.');
 
-  // 6️⃣ Salva resposta do bot
+  // 7️⃣ Salva resposta do bot
   await saveClientInteraction(clientId, 'bot', botResponse);
 
-  // 7️⃣ Tenta criar agendamento automaticamente (com as melhorias)
+  // 8️⃣ Tenta criar agendamento automaticamente (com as melhorias)
   await tryScheduleAppointment(clientId, userInput, clientMemory);
 
   return botResponse;
