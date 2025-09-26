@@ -1,261 +1,203 @@
-// src/modules/integration/Chatgpt/chatGptAdapter.ts
 import { OpenAI } from 'openai';
-import ClientMemory from '../../../infraestructure/mongo/models/clientMemoryModel';
-import Appointment from '../../../infraestructure/mongo/models/appointmentModel';
-import { scheduleAppointment } from '../../appointments/scheduleAppointment';
+import { compact } from '../../../utils/search';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-// ===================== INTERFACES =====================
-interface Product {
+export interface Product {
+  id: string;
+  category: string;
   name: string;
   description: string;
-  priceMin: number;
-  priceMax: number;
+  price: number;
+  price_eur?: number | null;
+  allergens: string[];
+  contains_pork: boolean;
+  spicy: boolean;
+  vegetarian: boolean;
+  vegan: boolean;
+  pregnancy_unsuitable: boolean;
+  recommended_alcoholic?: string | null;
+  recommended_non_alcoholic?: string | null;
+  notes?: string | null;
+  imageUrl?: string;
 }
 
-interface CompanyData {
+export interface CompanyData {
   name: string;
   address: string;
   email: string;
   phone: string;
-  about?: string; // ✅ novo campo "Quem somos"
 }
 
-// ===================== FUNÇÕES AUXILIARES =====================
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
-// 1️⃣ Salva interação na memória do cliente
-const saveClientInteraction = async (
-  clientId: string,
-  sender: 'client' | 'bot',
-  message: string
-) => {
-  const memory = await ClientMemory.findOne({ clientId });
+export interface MemoryContext {
+  topics?: string[];
+  sentiment?: 'positive' | 'neutral' | 'negative';
+}
 
-  if (memory) {
-    memory.interactions.push({ sender, message, timestamp: new Date() });
-    memory.lastInteraction = new Date();
-    await memory.save();
-  } else {
-    await ClientMemory.create({
-      clientId,
-      interactions: [{ sender, message, timestamp: new Date() }],
-      lastInteraction: new Date(),
-    });
-  }
-};
+export interface LangPrefs {
+  preferredLanguage?: 'pt' | 'es' | 'en' | 'it' | 'fr' | 'ar' | 'de';
+  userInputLanguage?: 'pt' | 'es' | 'en' | 'it' | 'fr' | 'ar' | 'de';
+}
 
-// 2️⃣ Verifica se o cliente confirmou o agendamento
-const clientConfirmsAppointment = (message: string): boolean => {
-  const confirmations = ['sim', 'confirmo', 'perfeito', 'ok', 'combinei', 'confirmar'];
-  const msgLower = message.toLowerCase();
-  return confirmations.some(word => msgLower.includes(word));
-};
+export interface ExtraInstructions {
+  guidelines?: string;
+  about?: string;
+}
 
-// 3️⃣ Extrai a data/hora da mensagem do cliente (dd/mm/yyyy hh[:mm], hh, hh h, hh horas)
-const extractDatetime = (message: string): Date | null => {
-  // aceita "21/11/2025 17", "21/11/2025 17h", "21/11/2025 17 horas", "21/11/2025 17:00"
-  const regex = /(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(\d{1,2})(?:[:h](\d{2}))?(?:\s*horas?)?/i;
-  const match = message.match(regex);
-  if (!match) return null;
+/**
+ * Simple language detection (reduced false positives).
+ */
+export function detectLang(text: string): LangPrefs['userInputLanguage'] {
+  if (/[ء-ي]/.test(text)) return 'ar';
+  const t = (text || '').toLowerCase();
+  if (/\b(el|la|los|las|que)\b/.test(t)) return 'es';
+  if (/\b(the|and|with|please|price|hello|hi)\b/.test(t)) return 'en';
+  if (/\b(il|la|gli|le|per|prezzo|ciao)\b/.test(t)) return 'it';
+  if (/\b(le|la|les|avec|prix|bonjour|s'il vous plaît)\b/.test(t)) return 'fr';
+  if (/\b(ola|olá|por favor|preço|preco)\b/.test(t)) return 'pt';
+  if (/\b(das|und|mit|bitte|preis|hallo|hi)\b/.test(t)) return 'de';
+  return 'en'; // safe default
+}
 
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  const year = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = match[5] ? Number(match[5]) : 0;
-
-  return new Date(year, month - 1, day, hour, minute);
-};
-
-// 4️⃣ (NOVA) Recupera a última data/hora pendente das interações salvas
-const findPendingDatetimeFromMemory = (clientMemory: any): Date | null => {
-  if (!clientMemory?.interactions?.length) return null;
-
-  // percorre do fim pro começo
-  const interactions = [...clientMemory.interactions].reverse();
-
-  // 1) tenta extrair do último marcador @@DATETIME@@ do bot
-  for (const it of interactions) {
-    if (it.sender === 'bot' && typeof it.message === 'string' && it.message.includes('@@DATETIME@@')) {
-      const m = it.message.match(/@@DATETIME@@\s*([^@]+?)\s*@@DATETIME@@/);
-      if (m) {
-        // normaliza "21/11/2025, 17:00" -> "21/11/2025 17:00"
-        const raw = m[1].replace(',', '').trim();
-        const d = extractDatetime(raw);
-        if (d) return d;
-      }
-    }
-  }
-
-  // 2) se não achar, tenta extrair da última mensagem do cliente que tenha data
-  for (const it of interactions) {
-    if (it.sender === 'client' && typeof it.message === 'string') {
-      const d = extractDatetime(it.message);
-      if (d) return d;
-    }
-  }
-
-  return null;
-};
-
-// 5️⃣ Tenta agendar automaticamente (atualizado para confirmar sem repetir a data)
-const tryScheduleAppointment = async (
-  clientId: string,
-  userInput: string,
-  clientMemory: any
-) => {
-  const possibleDatetimeInMessage = extractDatetime(userInput);
-  const isConfirm = clientConfirmsAppointment(userInput);
-
-  // Checa se já existe agendamento confirmado
-  const existingAppointment = await Appointment.findOne({ clientId, status: 'confirmed' });
-  if (existingAppointment) return;
-
-  // Se a mensagem atual É confirmação mas NÃO contém data -> usar a última pendente da memória
-  if (!possibleDatetimeInMessage && isConfirm) {
-    const pending = findPendingDatetimeFromMemory(clientMemory);
-    if (pending) {
-      const clientName = clientMemory?.name || 'Cliente';
-      try {
-        await scheduleAppointment(clientId, clientName, pending, true);
-        await saveClientInteraction(
-          clientId,
-          'bot',
-          `✅ Agendamento confirmado para ${pending.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`
-        );
-      } catch (err) {
-        console.error('Erro ao criar agendamento:', err);
-        await saveClientInteraction(
-          clientId,
-          'bot',
-          '❌ Ocorreu um erro ao criar o agendamento. Tente novamente mais tarde.'
-        );
-      }
-      return;
-    }
-  }
-
-  // Se não encontrou data/hora na mensagem e também não é confirmação, pedir no formato correto
-  if (!possibleDatetimeInMessage) {
-    await saveClientInteraction(
-      clientId,
-      'bot',
-      'Não consegui identificar a data/hora. Por favor, escreva no formato "14/10/2025 9" (ou "14/10/2025 9h" / "14/10/2025 09:00").'
-    );
-    return;
-  }
-
-  // Se encontrou data/hora mas ainda não confirmou -> perguntar confirmação
-  if (!isConfirm) {
-    const formattedDate = possibleDatetimeInMessage.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-    await saveClientInteraction(
-      clientId,
-      'bot',
-      `@@DATETIME@@ ${formattedDate} @@DATETIME@@\nVocê confirma seu agendamento para essa data/hora? Responda "confirmar" para confirmar.`
-    );
-    return;
-  }
-
-  // Se confirmou e temos a data na mesma mensagem -> criar o agendamento
-  const clientName = clientMemory?.name || 'Cliente';
-  try {
-    await scheduleAppointment(clientId, clientName, possibleDatetimeInMessage, true);
-    await saveClientInteraction(
-      clientId,
-      'bot',
-      `✅ Agendamento confirmado para ${possibleDatetimeInMessage.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`
-    );
-  } catch (err) {
-    console.error('Erro ao criar agendamento:', err);
-    await saveClientInteraction(
-      clientId,
-      'bot',
-      '❌ Ocorreu um erro ao criar o agendamento. Tente novamente mais tarde.'
-    );
-  }
-};
-
-// ===================== FUNÇÃO PRINCIPAL =====================
 export const generateBotResponse = async (
   botName: string,
   persona: string,
-  products: Product[],
+  relevantProducts: Product[],
+  allProducts: Product[],
   temperature: number,
   userInput: string,
   companyData: CompanyData,
-  clientId: string
+  history: ChatHistoryItem[] = [],
+  memory: MemoryContext = {},
+  lang: LangPrefs = {},
+  allowedProductNames: string[] = [],
+  extras: ExtraInstructions = {}
 ): Promise<string> => {
+  const allowedNames = allowedProductNames.length
+    ? allowedProductNames.join(', ')
+    : allProducts.map((p) => p.name).join(', ');
 
-  // 1️⃣ Salva mensagem do cliente
-  await saveClientInteraction(clientId, 'client', userInput);
+  // Short details of relevant products
+  const relevantBlock = relevantProducts
+    .map(
+      (p) => `
+${p.name}
+${compact(p.description, 120)}
+€ ${Number(p.price).toFixed(2)}
+`
+    )
+    .join('\n\n');
 
-  // 2️⃣ Recupera memória do cliente
-  const clientMemory = await ClientMemory.findOne({ clientId });
-
-  let memoryContext = '';
-  if (clientMemory) {
-    memoryContext = `Últimas 5 interações:\n${clientMemory.interactions
-      .slice(-5)
-      .map((i: any) => `[${i.timestamp.toISOString()}] ${i.sender}: ${i.message}`)
-      .join('\n')}`;
-  }
-
-  // 3️⃣ Descrição dos produtos
-  const productDescriptions = products
-    .map(p => `📦 ${p.name} - ${p.description} (Preço: R$${p.priceMin} - R$${p.priceMax})`)
+  // Full detailed menu (labels in EN)
+  const allBlock = allProducts
+    .map(
+      (p) => `
+- ${p.name} (${p.category})
+  Description: ${p.description}
+  Price: € ${Number(p.price).toFixed(2)}
+  Allergens: ${p.allergens?.join(', ') || 'none'}
+  Contains pork: ${p.contains_pork ? 'yes' : 'no'}
+  Vegan: ${p.vegan ? 'yes' : 'no'}
+  Vegetarian: ${p.vegetarian ? 'yes' : 'no'}
+  Spicy: ${p.spicy ? 'yes' : 'no'}
+  Pregnancy: ${p.pregnancy_unsuitable ? 'not recommended' : 'ok'}
+  Alcoholic pairing: ${p.recommended_alcoholic ?? '—'}
+  Non-alcoholic pairing: ${p.recommended_non_alcoholic ?? '—'}
+  Notes: ${p.notes ?? '—'}
+`
+    )
     .join('\n');
 
-  // 4️⃣ Monta bloco da empresa com "Quem somos" se existir
-  const companyBlock = [
-    `🏢 ${companyData.name}`,
-    `📍 ${companyData.address}`,
-    `📧 ${companyData.email}`,
-    `📞 ${companyData.phone}`,
-    companyData.about ? `ℹ️ Quem somos: ${companyData.about}` : null, // ✅ usa "about" quando presente
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  // 5️⃣ Monta prompt para GPT
-  const prompt = `
-🧠 Contexto da empresa:
-${companyBlock}
-
-🛒 Produtos disponíveis:
-${productDescriptions}
-
-${memoryContext}
-
-⚠️ Instruções:
-- Seja amigável e conciso.
-- Se houver data/hora, apenas repita no formato dd/mm/aaaa hh. Essa será uma mensagem "especial".
-- Pergunte confirmação de agendamento apenas quando necessário.
-
-Responda como ${botName}, persona: ${persona}.
+  const memoryBlock = `
+Customer context:
+- Topics: ${Array.isArray(memory.topics) && memory.topics.length ? memory.topics.join(', ') : '—'}
+- Sentiment: ${memory.sentiment ?? 'neutral'}
 `.trim();
 
-  // 6️⃣ Gera resposta do GPT
+  // LANGUAGE: detect only from latest user input; fallback = English
+  const detectedFromLatest = lang.userInputLanguage ?? detectLang(userInput);
+  const preferred = lang.preferredLanguage ?? detectedFromLatest ?? 'en';
+
+  const isFirstTurn = history.length === 0;
+
+  const languageInstruction = `
+Always respond in the language detected from the user's latest message only.
+Do NOT use product/menu/company data or previous messages to determine language.
+If the user requests "english" or writes in English, respond in English.
+If languages are mixed, prioritize "${preferred}".
+Supported languages: Português, Español, English, Italiano, Français, العربية, Deutsch.
+`.trim();
+
+  const conversationFlow = isFirstTurn
+    ? `
+First message policy (first turn only):
+- Begin with: "Which language can I answer you in?"
+- After the customer replies with a language, send (translated into the same language):
+  "Welcome! I am here to help with product recommendations and information about our services."
+- Do NOT show best sellers in the very first message.
+`.trim()
+    : `
+On subsequent turns:
+- Do NOT show best sellers unless the customer asks for recommendations or suggestions.
+`.trim();
+
+  const systemPrompt = `
+You are ${botName}, persona: ${persona}.
+${extras.about ? `\n### About the company\n${extras.about}` : ''}
+${extras.guidelines ? `\n### Additional instructions\n${extras.guidelines}` : ''}
+
+### Language
+${languageInstruction}
+
+### Conversation flow
+${conversationFlow}
+
+Allowed product names: ${allowedNames || '—'}
+
+### Company data
+- Company: ${companyData.name}
+- Address: ${companyData.address}
+- E-mail: ${companyData.email}
+- Phone: ${companyData.phone}
+
+${memoryBlock}
+
+### Relevant products
+${relevantBlock || '—'}
+
+### Full menu
+${allBlock || '—'}
+`.trim();
+
+  const hardLangGuard = `
+Language policy (must follow, no exceptions):
+- Determine reply language ONLY from the user's most recent message (this turn).
+- NEVER include text in any other language within the same reply.
+- Do not infer language from menu/catalog/company data or previous messages.
+- If ambiguity, reply in "${preferred}".
+- Keep product names as-is; all other text must be in the chosen language.
+`.trim();
+
+  const trimmedHistory = history.slice(-6);
+
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'system' as const, content: hardLangGuard },
+    ...trimmedHistory.map((h) => ({ role: h.role, content: h.content })),
+    { role: 'user' as const, content: userInput },
+  ];
+
   const response = await openai.chat.completions.create({
-    model: 'gpt-4-turbo',
-    messages: [
-      { role: 'system', content: prompt },
-      { role: 'user', content: userInput },
-    ],
-    temperature,
-    max_tokens: 200,
+    model: 'gpt-4o-mini',
+    messages,
+    temperature: Math.min(temperature, 0.7),
+    max_tokens: 800,
   });
 
-  const botResponse = response.choices[0].message?.content;
-  if (!botResponse) throw new Error('GPT response was empty.');
-
-  // 7️⃣ Salva resposta do bot
-  await saveClientInteraction(clientId, 'bot', botResponse);
-
-  // 8️⃣ Tenta criar agendamento automaticamente (com as melhorias)
-  await tryScheduleAppointment(clientId, userInput, clientMemory);
-
-  return botResponse;
+  return response.choices?.[0]?.message?.content || '';
 };

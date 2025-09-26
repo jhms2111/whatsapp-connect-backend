@@ -1,10 +1,31 @@
-// src/modules/memory/clientMemoryRouter.ts
 import { Router } from 'express';
-import ClientMemory, { IClientMemory } from '../../mongo/models/clientMemoryModel';
+import ClientMemory from '../../mongo/models/clientMemoryModel';
 
 const router = Router();
 
-// Adiciona uma nova interação ou atualiza dados do cliente
+type Sentiment = 'positive' | 'neutral' | 'negative';
+function isSentiment(x: any): x is Sentiment {
+  return x === 'positive' || x === 'neutral' || x === 'negative';
+}
+
+// recalcula agregados (tópicos/sentimento)
+function recomputeAggregates(doc: any) {
+  const topicSet = new Set<string>();
+  const counts: Record<Sentiment, number> = { positive: 0, neutral: 0, negative: 0 };
+
+  const interactions = (doc.interactions ?? []) as Array<{ topics?: string[]; sentiment?: Sentiment }>;
+  for (const it of interactions) {
+    (it.topics ?? []).forEach((t) => topicSet.add(String(t).toLowerCase()));
+    if (it.sentiment && isSentiment(it.sentiment)) counts[it.sentiment]++;
+  }
+
+  doc.topicsAgg = Array.from(topicSet).slice(0, 10);
+  const entries = Object.entries(counts) as [Sentiment, number][];
+  entries.sort((a, b) => b[1] - a[1]);
+  doc.sentimentAgg = (entries[0]?.[1] ?? 0) > 0 ? entries[0][0] : 'neutral';
+}
+
+// Adiciona nova interação/atualiza dados
 router.post('/interaction', async (req, res) => {
   const { clientId, message, sender, topics, sentiment, name, age, city, contact } = req.body;
 
@@ -13,31 +34,24 @@ router.post('/interaction', async (req, res) => {
   }
 
   try {
-    // Busca o cliente
     let client = await ClientMemory.findOne({ clientId });
+    if (!client) client = new ClientMemory({ clientId, interactions: [] });
 
-    if (!client) {
-      // Cria um novo registro se não existir
-      client = new ClientMemory({ clientId });
-    }
+    if (name) client.name = String(name).trim();
+    if (age != null) client.age = Number(age);
+    if (city) client.city = String(city).trim();
+    if (contact) client.contact = { ...(client.contact ?? {}), ...contact };
 
-    // Atualiza informações básicas do cliente
-    if (name) client.name = name;
-    if (age) client.age = age;
-    if (city) client.city = city;
-    if (contact) client.contact = { ...client.contact, ...contact };
-
-    // Adiciona a nova interação
     client.interactions.push({
-      message,
+      message: String(message),
       sender,
       timestamp: new Date(),
-      topics: topics || [],
-      sentiment: sentiment || 'neutral',
+      topics: Array.isArray(topics) ? topics.slice(0, 10) : [],
+      sentiment: isSentiment(sentiment) ? sentiment : 'neutral',
     });
 
-    // Atualiza a última interação
     client.lastInteraction = new Date();
+    recomputeAggregates(client);
 
     await client.save();
     res.status(200).json({ success: true, client });
@@ -47,14 +61,12 @@ router.post('/interaction', async (req, res) => {
   }
 });
 
+// Recupera memória
 router.get('/memory/:clientId', async (req, res) => {
   const { clientId } = req.params;
-
   try {
     const client = await ClientMemory.findOne({ clientId });
-    if (!client) {
-      return res.status(404).json({ error: 'Cliente não encontrado.' });
-    }
+    if (!client) return res.status(404).json({ error: 'Cliente não encontrado.' });
     res.status(200).json(client);
   } catch (error) {
     console.error('Erro ao buscar memória do cliente:', error);

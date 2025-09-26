@@ -87,7 +87,7 @@ router.post(
       nr.adminNotes = adminNotes;
       nr.approvedAt = new Date();
       await nr.save();
-
+2
       return res.json({
         message: 'Pedido aprovado com sucesso',
         numberRequest: nr,

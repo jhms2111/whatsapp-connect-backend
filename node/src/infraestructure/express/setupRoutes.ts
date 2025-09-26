@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 import { setupStaticRoutes } from './routes/staticRoutes';
 import { setupTwilioRoutes } from './routes/twilioRoutes';
 import { setupUploadRoutes } from './routes/uploadRoutes';
-import { setupAudioRoutes, ensureUploadDirExists } from './routes/audioRoutes';
+
 import { handleSocketConnection } from './handleSocketConnection';
 import { authenticateJWT } from './middleware/authMiddleware';
 
@@ -24,17 +24,16 @@ import numberRequestRoutes from './routes/numberRequestRoutes';
 import adminNumberRoutes from './routes/adminNumberRoutes';
 import twilioNumberRoutes from './routes/twilioNumberRoutes'
 import adminTwilioNumberRoutes from './routes/adminTwilioNumberRoutes';
+import adminProductRoutes from './routes/adminProductRoutes'
+import adminClientRoutes from './routes/adminClientRoutes'
+import adminBotRoutes from './routes/adminBotRoutes'
+import adminRoutes from './routes/adminRoutes'
 
-import appointmentRoutes from '../express/routes/appointmentRoutes'
-import appointmentV2Routes from './routes/appointmentV2Routes';
+import registerRoutes from './routes/registerRoutes'
+import verificationRoutes from './routes/verificationRoutes'
 
 
-import professionalRoutes from './routes/professionalRoutes';
-import serviceRoutes from './routes/serviceRoutes';
-import availabilityTemplateRoutes from './routes/availabilityTemplateRoutes';
-import assignmentRoutes from './routes/assignmentRoutes';
-import timeOffRoutes from './routes/timeOffRoutes';
-import slotRoutes from './routes/slotRoutes';
+import userAuthRoutes from './routes/userAuthRoutes'
 
 
 
@@ -79,7 +78,7 @@ export function setupRoutes(io: Server): Express {
     credentials: true,
   }));
 
-  ensureUploadDirExists();
+ 
 
   // 1) Stripe webhook ANTES dos parsers (usa express.raw)
   app.use('/api', stripeWebhook);
@@ -91,53 +90,6 @@ export function setupRoutes(io: Server): Express {
   // Rotas base
   app.use('/api', messageRoutes);
 
-  // 🔐 Login (híbrido): tenta MongoDB; se não achar, cai no fallback estático
-  app.post('/login', async (req: Request, res: Response) => {
-    try {
-      const { username, password } = req.body as { username?: string; password?: string };
-
-      if (!username || !password) {
-        return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
-      }
-
-      // 1) Tentativa via MongoDB (usuário real)
-      try {
-        const doc = await User.findOne({ username }).exec();
-        if (doc) {
-          const ok = await bcrypt.compare(password, doc.passwordHash);
-          if (!ok) return res.status(401).json({ error: 'Credenciais inválidas' });
-
-          const token = jwt.sign(
-            { id: doc.id, username: doc.username, role: doc.role },
-            JWT_SECRET,
-            { expiresIn: '1h' }
-          );
-
-          await createOrUpdateCliente(username);
-          return res.json({ token });
-        }
-      } catch (dbErr) {
-        // Se der erro de DB, apenas registra e cai no fallback estático
-        console.warn('[LOGIN] Falha no lookup do Mongo, usando fallback estático:', dbErr);
-      }
-
-      // 2) Fallback: usuários estáticos de teste (sem bcrypt)
-      const s = STATIC_USERS.find(u => u.username === username && u.password === password);
-      if (!s) return res.status(401).json({ error: 'Credenciais inválidas' });
-
-      const token = jwt.sign(
-        { id: `static:${s.username}`, username: s.username, role: s.role },
-        JWT_SECRET,
-        { expiresIn: '1h' }
-      );
-
-      await createOrUpdateCliente(username);
-      return res.json({ token });
-    } catch (err) {
-      console.error('[LOGIN] Erro inesperado:', err);
-      return res.status(500).json({ error: 'Erro interno ao fazer login' });
-    }
-  });
 
   // ✅ Rota protegida (exemplo)
   app.get('/rota-protegida', authenticateJWT, (req: Request, res: Response) => {
@@ -178,28 +130,34 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', botEditRoutes);
   app.use('/api', twilioNumberRoutes);
   app.use('/api', adminTwilioNumberRoutes);
+  app.use('/api', adminProductRoutes);
+  app.use('/api', adminClientRoutes);
+  app.use('/api', adminBotRoutes);
+  app.use('/api/admin', adminRoutes);
+
+  
+
+  
+
 
   // Fluxo de pedido de número + Stripe (checkout normal após parsers)
   app.use('/api', numberRequestRoutes);
   app.use('/api', adminNumberRoutes);
   app.use('/api', billingRoutes);
 
-  app.use('/api', appointmentRoutes);
-  app.use('/api', appointmentV2Routes);
-  
+  app.use('/api', registerRoutes)
+  app.use('/api', verificationRoutes )
 
-  app.use('/api', professionalRoutes);
-  app.use('/api', serviceRoutes);
-  app.use('/api', availabilityTemplateRoutes);
-  app.use('/api', assignmentRoutes);
-  app.use('/api', timeOffRoutes);
-  app.use('/api', slotRoutes);
+  app.use('/api', userAuthRoutes )
+
+
 
   // Rotas de recursos existentes
   setupStaticRoutes(app);
   setupTwilioRoutes(app, io);
   setupUploadRoutes(app, io);
-  setupAudioRoutes(app, io);
+  
+
 
   const PORT = process.env.PORT || 4000;
   const server = app.listen(PORT, () => {
