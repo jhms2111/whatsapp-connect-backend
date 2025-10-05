@@ -28,13 +28,25 @@ import adminProductRoutes from './routes/adminProductRoutes'
 import adminClientRoutes from './routes/adminClientRoutes'
 import adminBotRoutes from './routes/adminBotRoutes'
 import adminRoutes from './routes/adminRoutes'
-
 import registerRoutes from './routes/registerRoutes'
+
 import verificationRoutes from './routes/verificationRoutes'
 
 
-import userAuthRoutes from './routes/userAuthRoutes'
+import stripeWebhookConversation from './routes/stripeWebhookConversation'
+import paymentRoutesConversation from './routes/paymentRoutesConversation'
 
+
+
+import userAuthRoutes from './routes/userAuthRoutes'
+import conversationPackageRoutes from './routes/conversationPackageRoutes'
+import checkoutPackageRoutes from './routes/checkoutPackageRoutes'
+
+import checkoutPackage from './routes/checkoutPackage'
+
+import conversationQuotaRoutes from './routes/conversationQuotaRoutes'
+
+import quotaRoutes from './routes/quotaRoutes'
 
 
 // ⚠️ Stripe: webhook (usa express.raw) deve ser montado ANTES do express.json()
@@ -78,10 +90,15 @@ export function setupRoutes(io: Server): Express {
     credentials: true,
   }));
 
- 
+  // 1) Webhooks antes dos parsers
+app.use('/api', stripeWebhookConversation); // atende /api/billing/webhook e /api/billing/package-webhook
+
+// 2) Parsers
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
   // 1) Stripe webhook ANTES dos parsers (usa express.raw)
-  app.use('/api', stripeWebhook);
+  //app.use('/api', stripeWebhook);
 
   // 2) Parsers padrão
   app.use(express.urlencoded({ extended: true }));
@@ -149,6 +166,27 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', verificationRoutes )
 
   app.use('/api', userAuthRoutes )
+  app.use('/api', userAuthRoutes )
+
+
+  app.use('/api', conversationPackageRoutes )
+
+
+  app.use('/api', paymentRoutesConversation )
+  app.use('/api', checkoutPackageRoutes )
+
+  app.use('/api', checkoutPackage )
+
+  //app.use('/api/quota', conversationQuotaRoutes);
+
+  app.use(quotaRoutes)
+
+
+  
+
+
+
+  
 
 
 

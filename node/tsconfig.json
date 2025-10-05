@@ -8,12 +8,14 @@
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "typeRoots": [
-      "./node_modules/@types",  // Diretório padrão onde as dependências de tipos estão localizadas
-      "./src/types"  // Diretório onde você colocou o arquivo de declarações globais
+      "./node_modules/@types",
+      "./src/types"
     ]
   },
   "include": [
-    "src/**/*.ts",  // Certifique-se de que todo o código TypeScript esteja sendo incluído
-    "src/types/**/*.d.ts"  // Incluir os arquivos de declaração de tipo globais
-, "src/infraestructure/express/routes/sendWhatsapp.ts", "src/infraestructure/express/routes/sendWhatsapp.ts"  ]
+    "src/**/*.ts",
+    "src/types/**/*.d.ts",
+    "src/infraestructure/express/routes/sendWhatsapp.ts",
+    "src/infraestructure/express/routes/paymentRoutes.ts"
+  ]
 }
