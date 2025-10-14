@@ -1,10 +1,18 @@
 // src/types/express.d.ts
-import { ICliente } from '../src/infraestructure/mongo/models/clienteModel'; // Ajuste o caminho conforme necessário
-
 declare global {
   namespace Express {
+    type Role = 'admin' | 'user';
+
+    interface AuthUser {
+      username: string;       // obrigatório após o auth
+      role?: Role | string;   // pode vir do token ou do DB
+      id?: string;            // sub/id/etc
+    }
+
     interface Request {
-      user?: ICliente;  // Tornando o campo 'user' opcional
+      user?: AuthUser;        // <- pronto: req.user tipado
     }
   }
 }
+
+export {};
