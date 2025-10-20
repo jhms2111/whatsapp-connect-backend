@@ -1,33 +1,53 @@
-import mongoose, { Schema, Document, Types } from 'mongoose';
-
-export type NumberRequestStatus = 'pending_review' | 'paid' | 'approved' | 'rejected';
+// src/infraestructure/mongo/models/numberRequestModel.ts
+import mongoose, { Schema, Document } from 'mongoose';
 
 export interface INumberRequest extends Document {
-  userId: string;               // ou o username, se preferir
-  username: string;             // redundância útil p/ listagens
-  status: NumberRequestStatus;
-  checkoutSessionId?: string;   // para quando reintroduzir Stripe
-  adminNotes?: string;
-  selectedNumber?: string;      // número aprovado pelo admin
+  userId?: string;
+  username: string;
+
+  // Statuses: mantemos os antigos por compatibilidade,
+  // mas o fluxo atual não usa mais "paid".
+  status: 'pending_review' | 'paid' | 'approved' | 'rejected';
+
+  selectedNumber?: string | null;
+
   createdAt: Date;
   updatedAt: Date;
-  paidAt?: Date;
-  approvedAt?: Date;
-  rejectedAt?: Date;
+
+  paidAt?: Date | null;
+  approvedAt?: Date | null;
+  rejectedAt?: Date | null;
+
+  // Legacy Stripe (compatibilidade)
+  checkoutSessionId?: string | null;
+
+  // Controle de brinde para evitar duplicidade
+  freeTrialGrantedAt?: Date | null;
 }
 
-const numberRequestSchema = new Schema<INumberRequest>({
-  userId: { type: String, required: true, index: true },
-  username: { type: String, required: true, index: true },
-  status: { type: String, enum: ['pending_review','paid','approved','rejected'], default: 'pending_review', index: true },
-  checkoutSessionId: { type: String },
-  adminNotes: { type: String },
-  selectedNumber: { type: String },
-  paidAt: { type: Date },
-  approvedAt: { type: Date },
-  rejectedAt: { type: Date },
-}, { timestamps: true });
+const NumberRequestSchema = new Schema<INumberRequest>(
+  {
+    userId: { type: String },
+    username: { type: String, required: true, index: true },
 
-numberRequestSchema.index({ userId: 1, status: 1, createdAt: -1 });
+    status: {
+      type: String,
+      enum: ['pending_review', 'paid', 'approved', 'rejected'],
+      default: 'pending_review',
+      index: true,
+    },
 
-export default mongoose.model<INumberRequest>('NumberRequest', numberRequestSchema);
+    selectedNumber: { type: String, default: null },
+
+    paidAt: { type: Date, default: null },
+    approvedAt: { type: Date, default: null },
+    rejectedAt: { type: Date, default: null },
+
+    checkoutSessionId: { type: String, default: null },
+
+    freeTrialGrantedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+export default mongoose.model<INumberRequest>('NumberRequest', NumberRequestSchema);

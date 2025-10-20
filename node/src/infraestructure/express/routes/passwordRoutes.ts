@@ -15,15 +15,17 @@ function buildResetUrl(token: string) {
   return `${base}/reset-password?token=${token}`;
 }
 
-/** Solicitar recuperação */
+/** (PÚBLICA) Solicita recuperação por e-mail */
 router.post('/request-password-reset', async (req: Request, res: Response) => {
   try {
     const { email } = req.body as { email?: string };
     if (!email) return res.status(400).json({ error: 'Email é obrigatório' });
 
     const user = await User.findOne({ email });
-    // Resposta genérica para não revelar existência do e-mail
-    if (!user) return res.json({ message: 'Se o email existir, enviaremos instruções de recuperação.' });
+    if (!user) {
+      // resposta genérica
+      return res.json({ message: 'Se o email existir, enviaremos instruções de recuperação.' });
+    }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = resetToken;
@@ -31,7 +33,6 @@ router.post('/request-password-reset', async (req: Request, res: Response) => {
     await user.save();
 
     const resetUrl = buildResetUrl(resetToken);
-
     await sendEmail({
       to: email,
       subject: 'Recuperação de senha',
@@ -39,7 +40,7 @@ router.post('/request-password-reset', async (req: Request, res: Response) => {
       html: `<p>Olá ${user.username},</p>
              <p>Você solicitou a redefinição de senha. Clique no link abaixo (válido por 24h):</p>
              <p><a href="${resetUrl}">${resetUrl}</a></p>
-             <p>Se não foi você, ignore este e-mail.</p>`,
+             <p>Se não foi você, ignore este e-mail.</p>`
     });
 
     res.json({ message: 'Se o email existir, enviaremos instruções de recuperação.' });
@@ -49,7 +50,7 @@ router.post('/request-password-reset', async (req: Request, res: Response) => {
   }
 });
 
-/** Redefinir senha (só com token) */
+/** (PÚBLICA) Redefinir senha via token */
 router.post('/reset-password', async (req: Request, res: Response) => {
   try {
     const { token, password, confirmPassword } = req.body as {

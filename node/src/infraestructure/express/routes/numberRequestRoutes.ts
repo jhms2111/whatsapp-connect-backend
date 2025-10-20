@@ -1,27 +1,30 @@
+// src/infraestructure/express/routes/numberRequestRoutes.ts
 import { Router, Request, Response } from 'express';
 import { authenticateJWT } from '../middleware/authMiddleware';
 import NumberRequest from '../../mongo/models/numberRequestModel';
 
 const router = Router();
 
-// Cria um pedido (se não existir outro em andamento)
+// Cria um pedido (sem pagamento): já nasce "paid" para manter o fluxo antigo do admin
 router.post('/number-requests', authenticateJWT, async (req: Request, res: Response) => {
   try {
     const { id: userId, username } = (req as any).user;
 
     const open = await NumberRequest.findOne({
       username,
-      status: { $in: ['pending_review', 'paid'] },
+      status: { $in: ['pending_review', 'paid', 'approved'] }, // qualquer um em progresso
     }).lean();
 
     if (open) {
       return res.status(400).json({ error: 'Já existe um pedido em andamento.' });
     }
 
+    const now = new Date();
     const nr = await NumberRequest.create({
-      userId,              // ✅ grave o userId
+      userId,
       username,
-      status: 'pending_review',
+      status: 'paid',       // 👈 nasce como "pago" (compatibilidade com UI antiga)
+      paidAt: now,
     });
 
     return res.status(201).json(nr);
@@ -30,7 +33,6 @@ router.post('/number-requests', authenticateJWT, async (req: Request, res: Respo
     return res.status(500).json({ error: 'Erro ao criar pedido' });
   }
 });
-
 
 // Lista pedidos do usuário logado
 router.get('/number-requests/mine', authenticateJWT, async (req: Request, res: Response) => {

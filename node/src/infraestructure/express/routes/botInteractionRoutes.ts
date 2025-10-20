@@ -4,6 +4,7 @@ import Product, { IProduct } from '../../mongo/models/productModel';
 import Message from '../../mongo/models/messageModel';
 import ClientMemory from '../../mongo/models/clientMemoryModel';
 import Bot from '../../mongo/models/botModel';
+import Cliente from '../../mongo/models/clienteModel';
 import {
   generateBotResponse,
   Product as LLMProduct,
@@ -12,6 +13,7 @@ import {
   detectLang,
 } from '../../../modules/integration/Chatgpt/chatGptAdapter';
 import { buildTextSearchQuery, fallbackScore } from '../../../utils/search';
+import { canUserAutoRespond } from '../../../utils/botsGuards';
 
 const router = Router();
 
@@ -41,9 +43,29 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
   }
 
   try {
+    // 0) Carregue o bot e descubra o dono
     const bot = await Bot.findById(botId).populate<{ product: IProduct | IProduct[] }>('product');
     if (!bot) return res.status(404).json({ error: 'Bot não encontrado' });
 
+    const ownerUsername: string | undefined = (bot as any).owner;
+    if (!ownerUsername) {
+      return res.status(400).json({ error: 'Bot sem owner associado' });
+    }
+
+    // 1) Guard central (bloqueio + botsEnabled)
+    const check = await canUserAutoRespond(ownerUsername);
+    if (!check.allow) {
+      return res.status(423).json({
+        error:
+          check.reason === 'BLOCKED'
+            ? 'Conta do proprietário do bot está bloqueada'
+            : check.reason === 'BOTS_OFF'
+            ? 'Bots desativados pelo usuário'
+            : 'Proprietário não encontrado',
+      });
+    }
+
+    // 2) Fluxo normal de geração de resposta
     const productDocs: IProduct[] = Array.isArray(bot.product)
       ? (bot.product as IProduct[])
       : ([bot.product] as IProduct[]);
@@ -51,7 +73,6 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
     const productIds = productDocs.map((p) => p._id);
     const allProductNames = productDocs.map((p) => p.name);
 
-    // monta allProducts no formato LLMProduct
     const allProductsRaw = await Product.find({ _id: { $in: productIds } }).lean();
     const allProducts: LLMProduct[] = allProductsRaw.map((p: any) => ({
       id: p.id_external || String(p._id),
@@ -74,7 +95,6 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       imageUrl: p.imageUrl ?? undefined,
     }));
 
-    // busca relevantes
     const textQuery = buildTextSearchQuery(userMessage);
     let relevantRaw = await Product.find({
       _id: { $in: productIds },
@@ -112,15 +132,13 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       imageUrl: p.imageUrl ?? undefined,
     }));
 
-    // empresa
     const companyData: CompanyData = {
-      name: bot.companyName ?? 'Empresa Genérica',
-      address: bot.address ?? 'Endereço não informado',
-      email: bot.email ?? 'email@empresa.com',
-      phone: bot.phone ?? '(00) 00000-0000',
+      name: (bot as any).companyName ?? 'Empresa Genérica',
+      address: (bot as any).address ?? 'Endereço não informado',
+      email: (bot as any).email ?? 'email@empresa.com',
+      phone: (bot as any).phone ?? '(00) 00000-0000',
     };
 
-    // histórico
     const chatHistory: ChatHistoryItem[] = [];
     if (roomId) {
       const lastMsgs = await Message.find({ roomId }).sort({ timestamp: -1 }).limit(1).lean();
@@ -132,7 +150,6 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       );
     }
 
-    // memória
     let memoryCtx: MemoryContext = {};
     if (clientId) {
       const mem = await ClientMemory.findOne({ clientId }).lean();
@@ -144,7 +161,6 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       }
     }
 
-    // fallback sem relevantes
     if (adapterProducts.length === 0) {
       const langGuess = detectLang(userMessage);
       type LangKey = 'pt' | 'es' | 'en' | 'it' | 'fr' | 'ar';
@@ -163,25 +179,23 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       return res.status(200).json({ message: out });
     }
 
-const botResponse = await generateBotResponse(
-  bot.name ?? 'Enki',
-  bot.persona ?? 'simples e simpática',
-  adapterProducts,
-  allProducts,
-  bot.temperature ?? 0.5,
-  userMessage,
-  companyData,
-  chatHistory,
-  memoryCtx,
-  { preferredLanguage, userInputLanguage: detectLang(userMessage) },
-  allProductNames,
-  {
-    about: bot.about,
-    guidelines: bot.guidelines,
-  }
-);
-
-
+    const botResponse = await generateBotResponse(
+      (bot as any).name ?? 'Enki',
+      (bot as any).persona ?? 'simples e simpática',
+      adapterProducts,
+      allProducts,
+      (bot as any).temperature ?? 0.5,
+      userMessage,
+      companyData,
+      chatHistory,
+      memoryCtx,
+      { preferredLanguage, userInputLanguage: detectLang(userMessage) },
+      allProductNames,
+      {
+        about: (bot as any).about,
+        guidelines: (bot as any).guidelines,
+      }
+    );
 
     return res.status(200).json({ message: botResponse });
   } catch (error) {
@@ -191,4 +205,3 @@ const botResponse = await generateBotResponse(
 });
 
 export { router };
-

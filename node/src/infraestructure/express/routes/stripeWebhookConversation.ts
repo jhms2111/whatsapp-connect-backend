@@ -19,8 +19,8 @@ const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
 // 🔧 TEST MODE: período de 1 minuto (para testes locais)
 // ==========================================================
 const CHARS_PER_CONVERSATION = 500;
-const MINUTE_MS = 60 * 1000;
-const PERIOD_MS = 1 * MINUTE_MS; // <<< alterado de 30 dias para 1 minuto
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PERIOD_MS = 30 * DAY_MS; // ~1 mês // <<< alterado de 30 dias para 1 minuto
 
 function addPeriod(from: Date = new Date()) {
   return new Date(from.getTime() + PERIOD_MS);

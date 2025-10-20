@@ -3,20 +3,50 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ICliente extends Document {
   username: string;
-  createdAt: Date;
-  lastLogin?: Date;
-  status?: 'active' | 'blocked';
+  status: 'active' | 'blocked';
   blockedAt?: Date | null;
   blockedReason?: string | null;
+
+  // Controle global de bots
+  botsEnabled: boolean;
+
+  // ⚡ Follow-up (mensagem pós-conversa)
+  followUpEnabled: boolean;           // se o follow-up está habilitado
+  followUpMessage?: string | null;    // texto a enviar
+  followUpDelayMinutes: number;       // atraso em minutos (ex.: 60)
+
+  // Metadados
+  createdAt?: Date;
+  lastLogin?: Date | null;
 }
 
-const clienteSchema = new Schema<ICliente>({
-  username: { type: String, required: true, unique: true },
-  createdAt: { type: Date, required: true },
-  lastLogin: { type: Date },
-  status: { type: String, enum: ['active', 'blocked'], default: 'active', index: true },
-  blockedAt: { type: Date, default: null },
-  blockedReason: { type: String, default: null },
-});
+const ClienteSchema = new Schema<ICliente>(
+  {
+    username: { type: String, unique: true, required: true, index: true },
 
-export default mongoose.model<ICliente>('Cliente', clienteSchema);
+    status: {
+      type: String,
+      enum: ['active', 'blocked'],
+      default: 'active',
+      index: true,
+    },
+
+    blockedAt: { type: Date, default: null },
+    blockedReason: { type: String, default: null },
+
+    // Controle global de bots
+    botsEnabled: { type: Boolean, default: true },
+
+    // ⚡ Follow-up
+    followUpEnabled: { type: Boolean, default: false },
+    followUpMessage: { type: String, default: null },
+    followUpDelayMinutes: { type: Number, default: 60 },
+
+    lastLogin: { type: Date, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: true } }
+);
+
+// Evita recompilar o model no hot-reload
+export default mongoose.models.Cliente ||
+  mongoose.model<ICliente>('Cliente', ClienteSchema);

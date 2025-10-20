@@ -4,6 +4,8 @@ import mongoose, { Document, Schema } from 'mongoose';
 export type UserRole = 'admin' | 'user';
 export type UserStatus = 'active' | 'blocked';
 
+
+
 export interface IUser extends Document {
   username: string;
   email: string;
@@ -19,6 +21,9 @@ export interface IUser extends Document {
   status: UserStatus;          // 'active' | 'blocked'
   blockedReason?: string;
   blockedAt?: Date;
+
+  // ✅ Ligar/Desligar TODOS os bots desse usuário
+  botsEnabled: boolean;
 
   // timestamps
   createdAt: Date;
@@ -41,10 +46,11 @@ const userSchema = new Schema<IUser>(
     status: { type: String, enum: ['active', 'blocked'], default: 'active', index: true },
     blockedReason: { type: String },
     blockedAt: { type: Date },
+
+    // ✅ Flag global dos bots
+    botsEnabled: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
-
-userSchema.index({ username: 1 }, { unique: true });
 
 export default mongoose.model<IUser>('User', userSchema);

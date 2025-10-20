@@ -1,10 +1,11 @@
-// src/infraestructure/express/setupRoutes.ts
 import express, { Express, Request, Response } from 'express';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
+
+import mongoose from 'mongoose';
 
 import { setupStaticRoutes } from './routes/staticRoutes';
 import { setupTwilioRoutes } from './routes/twilioRoutes';
@@ -14,6 +15,7 @@ import { handleSocketConnection } from './handleSocketConnection';
 import { authenticateJWT } from './middleware/authMiddleware';
 import { requireActiveUser, shouldSkipActiveCheck } from './middleware/requireActiveUser';
 
+// === suas rotas já existentes ===
 import messageRoutes from './routes/messageRoutes';
 import roomRoutes from './routes/roomRoutes';
 import chatMessageRoutes from './routes/chatMessageRoutes';
@@ -47,16 +49,57 @@ import adminNumberAccessRoutes from './routes/adminNumberAccessRoutes';
 import adminUserRoutes from './routes/adminUserRoutes';
 import whatsappWebhook from './routes/whatsappWebhook';
 import sessionRoutes from './routes/sessionRoutes';
-
-// Produtos/Bots/Interações
+import conversationQuotaRoutes from './routes/conversationQuotaRoutes';
 import productRoutes from './routes/productRoutes';
 import botRoutes from './routes/botRoutes';
 import { router as botInteractionRoutes } from './routes/botInteractionRoutes';
+import botsGlobalRoutes from './routes/botsGlobalRoutes';
+import meBotsRoutes from './routes/meBotsRoutes';
+
+
+// rota de follow-up (protegida)
+import meFollowUpRoutes from './routes/meFollowUpRoutes';
+
+// worker de follow-up
+import startFollowUpWorker from './workers/followUpWorker';
 
 import { userSockets } from '../../modules/integration/damain/user';
 import { createOrUpdateCliente } from '../mongo/mongodbAdapter';
 
+// === MODELS usados para manutenção
+import FollowUpSchedule from '../mongo/models/followUpQueueModel';
+
+import qrCodeRoutes from './routes/qrCodeRoutes';
+
+import passwordRoutes from './routes/passwordRoutes'; // <-- ADICIONE ESTE IMPORT
+
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
+
+/** Remove o índice legado `ownerUsername_1_contact_1` se existir. */
+async function dropLegacyFollowUpIndex() {
+  try {
+    const coll = mongoose.connection.collection('followupschedules');
+    const idx = await coll.indexes();
+    const legacy = idx.find((i) => i.name === 'ownerUsername_1_contact_1');
+    if (legacy) {
+      console.warn('[followupschedules] Removendo índice legado ownerUsername_1_contact_1...');
+      await coll.dropIndex('ownerUsername_1_contact_1');
+      console.warn('[followupschedules] Índice legado removido.');
+    } else {
+      console.log('[followupschedules] Índice legado não existe (ok).');
+    }
+  } catch (e) {
+    console.error('[followupschedules] Falha ao remover índice legado (segue assim mesmo):', e);
+  }
+
+  // Garante os índices atuais (inclui o parcial 1-pendente-por-conversa)
+  try {
+    await FollowUpSchedule.syncIndexes(); // idempotente
+    console.log('[followupschedules] Índices sincronizados.');
+  } catch (e) {
+    console.error('[followupschedules] Falha ao sincronizar índices:', e);
+  }
+}
 
 export function setupRoutes(io: Server): Express {
   const app = express();
@@ -70,16 +113,35 @@ export function setupRoutes(io: Server): Express {
     })
   );
 
-  // 1) Webhooks que precisam vir antes de json (usam express.raw dentro do módulo)
-  //    stripeWebhookConversation já atende /api/billing/webhook e /api/billing/package-webhook
+  // 1) Webhooks ANTES
   app.use('/api', stripeWebhookConversation);
 
-  // 2) Parsers padrão
+  // 2) Parsers
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
-  // 3) Middlewares condicionais de auth e bloqueio:
-  //    - pulam login/registro/webhook/me/status/socket.io
+  // ====== 3) ROTAS PÚBLICAS ======
+  app.use('/api', registerRoutes);
+  app.use('/api', verificationRoutes);
+  app.use('/api', userAuthRoutes);
+  app.use('/api', meRoutes);          // /api/me/status (GET) — pública de status
+  app.use('/api', whatsappWebhook);   // /api/whatsapp/webhook
+
+  // Health/check
+  app.get('/check-session', (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Token não fornecido' });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const alreadyConnected = userSockets.has(decoded.username);
+      if (alreadyConnected) return res.status(409).json({ error: 'Sessão já ativa para este usuário' });
+      return res.status(200).json({ message: 'Sessão liberada' });
+    } catch {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+  });
+
+  // ====== 4) MIDDLEWARES DE AUTH/ACTIVE PARA O RESTO ======
   app.use('/api', (req, res, next) => {
     if (shouldSkipActiveCheck(req)) return next();
     return authenticateJWT(req, res, next);
@@ -90,44 +152,17 @@ export function setupRoutes(io: Server): Express {
     return requireActiveUser(req, res, next);
   });
 
-  // 4) Rota protegida de exemplo (mantida)
+  // 5) Rota protegida exemplo
   app.get('/rota-protegida', authenticateJWT, (req: Request, res: Response) => {
     const user = (req as any).user;
     res.json({ message: 'Você acessou uma rota protegida!', usuario: user.username });
   });
 
-  // 5) Verificar sessão socket
-  app.get('/check-session', (req, res) => {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Token não fornecido' });
-
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
-      const alreadyConnected = userSockets.has(decoded.username);
-      if (alreadyConnected) {
-        return res.status(409).json({ error: 'Sessão já ativa para este usuário' });
-      }
-      return res.status(200).json({ message: 'Sessão liberada' });
-    } catch {
-      return res.status(401).json({ error: 'Token inválido' });
-    }
-  });
-
-  // 6) Rotas da aplicação
-  // Auth / Registro / Verificação (públicas por SKIP em shouldSkipActiveCheck)
-  app.use('/api', registerRoutes);
-  app.use('/api', verificationRoutes);
-  app.use('/api', userAuthRoutes);
-
-  // Me (status do usuário – permitido no SKIP)
-  app.use('/api', meRoutes);
-
-  // Mensagens / Salas / Chat
+  // ====== 6) ROTAS PROTEGIDAS ======
   app.use('/api', messageRoutes);
   app.use('/api', chatMessageRoutes);
   app.use('/api', roomRoutes);
 
-  // Bot / Produtos
   app.use('/api', productRoutes);
   app.use('/api', productDeleteRoutes);
   app.use('/api', productEditRoutes);
@@ -137,63 +172,75 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', botEditRoutes);
   app.use('/api', botInteractionRoutes);
 
-  // WhatsApp / Twilio
   app.use('/api', sendWhatsapp);
   app.use('/api', twilioNumberRoutes);
 
-  // Pedidos de número / Admin números / Billing
   app.use('/api', numberRequestRoutes);
-  app.use('/api/admin', adminNumberRoutes);         // ← admin
+  app.use('/api/admin', adminNumberRoutes);
   app.use('/api', billingRoutes);
 
-  // Pacotes de conversas, pagamentos e checkout
   app.use('/api', conversationPackageRoutes);
   app.use('/api', paymentRoutesConversation);
   app.use('/api', checkoutPackageRoutes);
   app.use('/api', checkoutPackage);
 
-  // Solicitação de autorização para número (cliente e admin)
   app.use('/api', numberAccessRequestRoutes);
-  app.use('/api/admin', adminNumberAccessRoutes);   // ← admin
+  app.use('/api/admin', adminNumberAccessRoutes);
 
-  // Admin — produtos / clientes / bots / user moderation
-  app.use('/api/admin', adminProductRoutes);        // ← admin
-  app.use('/api/admin', adminClientRoutes);         // ← admin
-  app.use('/api/admin', adminBotRoutes);            // ← admin
-  app.use('/api/admin', adminRoutes);               // ← admin
-  app.use('/api/admin', adminUserRoutes);           // ← admin  (corrigido — era /api)
+  app.use('/api/admin', adminProductRoutes);
+  app.use('/api/admin', adminClientRoutes);
+  app.use('/api/admin', adminBotRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/admin', adminUserRoutes);
 
-  // Histórico / Sessão / Quota / Webhook WhatsApp
   app.use('/api', historyRoutes);
   app.use('/api', sessionRoutes);
   app.use('/api', quotaRoutes);
-  app.use('/api', whatsappWebhook);
+  app.use('/api', conversationQuotaRoutes);
 
-  // 7) Rotas estáticas / Twilio / Uploads
+  app.use('/api', meBotsRoutes);
+  app.use('/api', botsGlobalRoutes);
+
+  // rota do follow-up (protegida)
+  app.use('/api', meFollowUpRoutes);
+
+  app.use('/api', qrCodeRoutes);
+
+  app.use('/api', passwordRoutes); // <-- MONTA AQUI, ANTES DO AUTH
+
+ 
+  
+
+  // 7) Estáticos / Twilio / Uploads
+  app.set('trust proxy', true); // para req.protocol correto atrás de proxy
   setupStaticRoutes(app);
   setupTwilioRoutes(app, io);
   setupUploadRoutes(app, io);
 
-  // 8) Socket.IO + JWT
+  // 8) Socket.IO + servidor
   const PORT = process.env.PORT || 4000;
   const server = app.listen(PORT, () => {
     console.log(`Servidor escutando em http://localhost:${PORT}`);
   });
 
+  // 🧹 Remoção de índice legado + sync de índices atuais (uma vez no boot)
+  dropLegacyFollowUpIndex().catch(() => { /* noop */ });
+
+  // ⚡ Inicia o worker de follow-up
+  startFollowUpWorker(io);
+
   io.use(async (socket, next) => {
-    const token = socket.handshake.auth?.token;
-    if (!token) {
-      // permitir socket anônimo se preferir
+    const raw = socket.handshake.auth?.token;
+    if (!raw || raw === 'null' || raw === 'undefined') {
       return next();
     }
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const decoded = jwt.verify(raw, JWT_SECRET) as { username: string };
       (socket as any).data.username = decoded.username;
       await createOrUpdateCliente(decoded.username);
-      next();
-    } catch (err) {
-      console.error('JWT inválido no socket:', err);
-      next();
+      return next();
+    } catch {
+      return next(); // segue como anônimo
     }
   });
 

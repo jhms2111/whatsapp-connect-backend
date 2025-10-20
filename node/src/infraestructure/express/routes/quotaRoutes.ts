@@ -1,7 +1,8 @@
 // src/infraestructure/express/routes/quotaRoutes.ts
-import express from 'express';
+import express, { Request, Response } from 'express';
 import ConversationQuota from '../../mongo/models/conversationQuotaModel';
 import { authenticateJWT } from '../middleware/authMiddleware';
+import { requireActiveUser } from '../middleware/requireActiveUser';
 
 const router = express.Router();
 const CHARS_PER_CONVERSATION = 500;
@@ -22,19 +23,17 @@ async function ensureFreshness(quota: any): Promise<any> {
 }
 
 /**
- * GET /api/quota  (protegidinha com JWT)
- * -> Sempre retorna: periodStart, periodEnd, coinsExpiresAt, expiresInSeconds, etc.
+ * GET /api/quota
+ * Detalhado — usado pelo QuotaDashboard.jsx
  */
-router.get('/api/quota', authenticateJWT, async (req: any, res) => {
+router.get('/quota', authenticateJWT, requireActiveUser, async (req: any, res: Response) => {
   try {
     const username: string | undefined = req.user?.username;
     if (!username) return res.status(401).json({ error: 'Não autorizado' });
 
-    console.log('[/api/quota] username:', username);
-
     const quota = await ConversationQuota.findOne({ username });
     if (!quota) {
-      const payload = {
+      return res.json({
         username,
         totalConversations: 0,
         usedConversations: 0,
@@ -46,9 +45,7 @@ router.get('/api/quota', authenticateJWT, async (req: any, res) => {
         periodStart: null,
         periodEnd: null,
         expiresInSeconds: 0,
-      };
-      console.log('[/api/quota] response (sem quota):', payload);
-      return res.json(payload);
+      });
     }
 
     await ensureFreshness(quota);
@@ -61,7 +58,7 @@ router.get('/api/quota', authenticateJWT, async (req: any, res) => {
     const end = quota.periodEnd ? new Date(quota.periodEnd) : null;
     const expiresInSeconds = end ? Math.max(0, Math.floor((end.getTime() - now.getTime()) / 1000)) : 0;
 
-    const payload = {
+    return res.json({
       username: quota.username,
       totalConversations: total,
       usedConversations,
@@ -73,29 +70,84 @@ router.get('/api/quota', authenticateJWT, async (req: any, res) => {
       periodStart: quota.periodStart ?? null,
       periodEnd: quota.periodEnd ?? null,
       expiresInSeconds,
-    };
-
-    console.log('[/api/quota] response:', {
-      username: payload.username,
-      periodEnd: payload.periodEnd,
-      coinsExpiresAt: payload.coinsExpiresAt,
-      expiresInSeconds: payload.expiresInSeconds,
-      totalConversations: payload.totalConversations,
-      usedConversations: payload.usedConversations,
     });
-
-    return res.json(payload);
   } catch (err: any) {
-    console.error('[API] /api/quota error:', err?.message || err);
+    console.error('[API] GET /api/quota error:', err?.message || err);
     return res.status(500).json({ error: 'Erro ao obter quota' });
   }
 });
 
 /**
- * GET /api/quota/debug  (só para diagnosticar — remova depois)
- * -> Devolve o documento cru do Mongo para ver se os campos existem.
+ * GET /api/quota/summary
+ * Resumo simples — usado no PainelCliente.jsx para mostrar apenas "créditos restantes".
  */
-router.get('/api/quota/debug', authenticateJWT, async (req: any, res) => {
+router.get('/quota/summary', authenticateJWT, requireActiveUser, async (req: any, res: Response) => {
+  try {
+    const username: string | undefined = req.user?.username;
+    if (!username) return res.status(401).json({ error: 'Não autorizado' });
+
+    const quota = await ConversationQuota.findOne(
+      { username },
+      { totalConversations: 1, usedCharacters: 1, periodEnd: 1, coinsExpiresAt: 1 }
+    ).lean();
+
+    if (!quota) {
+      return res.json({ creditsRemaining: 0, periodEnd: null, coinsExpiresAt: null });
+    }
+
+    const total = Number(quota.totalConversations || 0);
+    const usedConversations = Math.ceil((Number(quota.usedCharacters || 0)) / CHARS_PER_CONVERSATION);
+    const remainingConversations = Math.max(total - usedConversations, 0);
+
+    return res.json({
+      creditsRemaining: remainingConversations,
+      periodEnd: quota.periodEnd ?? null,
+      coinsExpiresAt: quota.coinsExpiresAt ?? null,
+    });
+  } catch (e) {
+    console.error('[API] GET /api/quota/summary error:', e);
+    return res.status(500).json({ error: 'Erro ao obter quota summary' });
+  }
+});
+
+/**
+ * GET /api/usage/summary
+ * Alias para compatibilidade (mesmo retorno de /quota/summary).
+ */
+router.get('/usage/summary', authenticateJWT, requireActiveUser, async (req: any, res: Response) => {
+  try {
+    const username: string | undefined = req.user?.username;
+    if (!username) return res.status(401).json({ error: 'Não autorizado' });
+
+    const quota = await ConversationQuota.findOne(
+      { username },
+      { totalConversations: 1, usedCharacters: 1, periodEnd: 1, coinsExpiresAt: 1 }
+    ).lean();
+
+    if (!quota) {
+      return res.json({ creditsRemaining: 0, periodEnd: null, coinsExpiresAt: null });
+    }
+
+    const total = Number(quota.totalConversations || 0);
+    const usedConversations = Math.ceil((Number(quota.usedCharacters || 0)) / CHARS_PER_CONVERSATION);
+    const remainingConversations = Math.max(total - usedConversations, 0);
+
+    return res.json({
+      creditsRemaining: remainingConversations,
+      periodEnd: quota.periodEnd ?? null,
+      coinsExpiresAt: quota.coinsExpiresAt ?? null,
+    });
+  } catch (e) {
+    console.error('[API] GET /api/usage/summary error:', e);
+    return res.status(500).json({ error: 'Erro ao obter usage summary' });
+  }
+});
+
+/**
+ * GET /api/quota/debug
+ * Documento cru do Mongo (diagnóstico).
+ */
+router.get('/quota/debug', authenticateJWT, requireActiveUser, async (req: any, res) => {
   try {
     const username: string | undefined = req.user?.username;
     if (!username) return res.status(401).json({ error: 'Não autorizado' });
@@ -103,7 +155,7 @@ router.get('/api/quota/debug', authenticateJWT, async (req: any, res) => {
     const doc = await ConversationQuota.findOne({ username }).lean();
     return res.json({ username, doc });
   } catch (err: any) {
-    console.error('[API] /api/quota/debug error:', err?.message || err);
+    console.error('[API] GET /api/quota/debug error:', err?.message || err);
     return res.status(500).json({ error: 'Erro ao obter quota debug' });
   }
 });
