@@ -2,39 +2,29 @@
 import { Request, Response, NextFunction } from 'express';
 import Cliente from '../../mongo/models/clienteModel';
 
-/** Normaliza o caminho para matching consistente, mesmo quando montado em /api */
-function getNormalizedPath(req: Request): string {
-  // baseUrl: prefixo do app.use('/api', router)  | path: rota interna do router
-  // Ex.: baseUrl="/api", path="/verify-email"  => "/api/verify-email"
-  const base = req.baseUrl || '';
-  const path = req.path || '';
-  return `${base}${path}`;
+function norm(req: Request): string {
+  // originalUrl pega o caminho completo depois do host (inclui base + path)
+  // removemos querystring para evitar falsos negativos
+  const p = (req.originalUrl || req.url || '').split('?')[0];
+  return p;
 }
 
 /**
- * Rotas públicas que NÃO devem exigir token nem checagem de "conta ativa".
- * Incluímos padrões com e sem o prefixo /api, e aceitamos trailing slashes.
+ * IMPORTANTE: Qualquer rota que deva ser pública (sem token) precisa estar aqui.
+ * Inclui webhooks, health, socket.io, e o webchat público.
  */
 const SKIP_PATHS: RegExp[] = [
-  // Auth pública
+  // Auth pública / registro / status
   /^\/auth(\/|$)/i,
   /^\/login(\/|$)/i,
   /^\/register(\/|$)/i,
   /^\/api\/auth(\/|$)/i,
   /^\/api\/login(\/|$)/i,
   /^\/api\/register(\/|$)/i,
-
-  // Verificação de e-mail (POST do FE e GET direto)
-  /^\/verify-email(\/|$)/i,
-  /^\/resend-email-verification(\/|$)/i,
-  /^\/api\/verify-email(\/|$)/i,
-  /^\/api\/resend-email-verification(\/|$)/i,
-
-  // Status (precisa responder mesmo bloqueado)
   /^\/me\/status(\/|$)/i,
   /^\/api\/me\/status(\/|$)/i,
 
-  // Webhooks
+  // Webhooks (anteriores)
   /^\/billing\/webhook(\/|$)/i,
   /^\/billing\/package-webhook(\/|$)/i,
   /^\/whatsapp\/webhook(\/|$)/i,
@@ -42,25 +32,22 @@ const SKIP_PATHS: RegExp[] = [
   /^\/api\/billing\/package-webhook(\/|$)/i,
   /^\/api\/whatsapp\/webhook(\/|$)/i,
 
-  // Health/checks públicos
+  // Health/check
   /^\/check-session(\/|$)/i,
 
   // Socket.io e preflight
   /^\/socket\.io(\/|$)/i,
+
+  // >>> WEBCHAT PÚBLICO <<<
+  /^\/api\/webchat(\/|$)/i,     // /api/webchat/start e /api/webchat/send
 ];
 
-/** Helper para o setupRoutes: decide se deve pular auth/active */
 export function shouldSkipActiveCheck(req: Request): boolean {
-  if (req.method === 'OPTIONS') return true; // preflight CORS
-  const p = getNormalizedPath(req);
+  if (req.method === 'OPTIONS') return true;
+  const p = norm(req);
   return SKIP_PATHS.some((rx) => rx.test(p));
 }
 
-/**
- * Middleware que bloqueia usuários com status "blocked" em endpoints protegidos.
- * Requer que authenticateJWT (ou algo que preencha req.user) já tenha rodado.
- * Admins (role === 'admin') e impersonate (imp === true) SEMPRE passam.
- */
 export async function requireActiveUser(req: Request, res: Response, next: NextFunction) {
   try {
     if (shouldSkipActiveCheck(req)) return next();
@@ -70,7 +57,6 @@ export async function requireActiveUser(req: Request, res: Response, next: NextF
       return res.status(401).json({ error: 'Auth ausente' });
     }
 
-    // Admin e impersonation não bloqueiam
     if (u.role === 'admin' || u.imp) return next();
 
     const cli = await Cliente.findOne(
@@ -79,7 +65,6 @@ export async function requireActiveUser(req: Request, res: Response, next: NextF
     ).lean();
 
     if (!cli) return res.status(404).json({ error: 'Usuário não encontrado' });
-
     if ((cli as any).status === 'blocked') {
       return res.status(423).json({
         error: 'Sua conta está bloqueada',

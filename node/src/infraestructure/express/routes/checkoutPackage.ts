@@ -1,58 +1,114 @@
-// src/infraestructure/express/routes/stripePackageWebhook.ts
-import express from 'express';
+// src/infraestructure/express/routes/checkoutPackage.ts
+import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
-import ConversationQuota from '../../mongo/models/conversationQuotaModel';
-import { PACKAGES } from '../../../utils/packages';
+import dotenv from 'dotenv';
+import { getPackage } from '../../../utils/packages';
 
-const router = express.Router();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-05-28.basil' });
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+dotenv.config();
 
-// ⚠️ NÃO use express.json() aqui
-router.post('/checkout-package', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'] as string | undefined;
+const router = Router();
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+if (!STRIPE_SECRET_KEY) {
+  console.warn('[checkoutPackage] STRIPE_SECRET_KEY não configurada — o checkout não funcionará.');
+}
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+
+type Channel = 'whatsapp' | 'webchat';
+
+/**
+ * POST /api/checkout-package
+ *
+ * body: {
+ *   packageType: number;            // 29|59|99 (whatsapp) ou 19|39|79 (webchat)
+ *   channel?: "whatsapp"|"webchat"; // default: "whatsapp"
+ *   successUrl?: string;
+ *   cancelUrl?: string;
+ *   username?: string;              // opcional (se quiser permitir compra pública)
+ * }
+ */
+router.post('/checkout-package', async (req: Request, res: Response) => {
   try {
-    if (!sig) return res.status(400).send('Missing stripe-signature');
-
-    const event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-    console.log('[BILLING] webhook:', event.type);
-
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-
-      const username = session.metadata?.username?.trim();
-      const packageTypeStr = session.metadata?.packageType;
-      const packageType = Number(packageTypeStr) as keyof typeof PACKAGES;
-
-      if (!username || !packageType || !PACKAGES[packageType]) {
-        return res.status(400).send('Metadata/pacote inválido');
-      }
-
-      const pacote = PACKAGES[packageType];
-
-      // Ativa/Reseta o pacote SEM créditos extras
-      const updated = await ConversationQuota.findOneAndUpdate(
-        { username },
-        {
-          $setOnInsert: { username, createdAt: new Date() },
-          $set: {
-            totalConversations: pacote.conversations, // 29→200, 59→500, 99→1250
-            usedCharacters: 0,                        // zera consumo
-            packageType: Number(packageType),
-            lastStripeCheckoutId: session.id,
-            updatedAt: new Date(),
-          },
-        },
-        { new: true, upsert: true }
-      ).lean();
-
-      console.log(`✅ Pacote €${pacote.priceEuros} (${pacote.conversations} conv.) ativado para ${username}`);
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe não configurado no servidor' });
     }
 
-    return res.json({ received: true });
-  } catch (err: any) {
-    console.error('[BILLING] webhook error:', err?.message || err);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    const {
+      packageType,
+      channel: rawChannel,
+      successUrl,
+      cancelUrl,
+      username: bodyUsername,
+    } = req.body as {
+      packageType?: number;
+      channel?: Channel;
+      successUrl?: string;
+      cancelUrl?: string;
+      username?: string;
+    };
+
+    // username: do token (preferencial) ou permitido via body
+    const username =
+      (req as any)?.user?.username ||
+      (typeof bodyUsername === 'string' ? bodyUsername : '');
+
+    if (!username) {
+      return res.status(401).json({ error: 'Usuário não autenticado (username ausente)' });
+    }
+
+    if (!Number.isInteger(packageType)) {
+      return res.status(400).json({ error: 'packageType inválido' });
+    }
+
+    // canal padrão = whatsapp
+    const channel: Channel = rawChannel === 'webchat' ? 'webchat' : 'whatsapp';
+
+    // Busca o pacote via helper unificado (NÃO indexe PACKAGES diretamente)
+    const pkg = getPackage(channel, packageType as number);
+    if (!pkg) {
+      return res.status(400).json({ error: 'Pacote inexistente para este canal' });
+    }
+
+    // Define o modo conforme o pacote (payment vs subscription)
+    const mode: 'payment' | 'subscription' =
+      (pkg.mode as any) === 'subscription' ? 'subscription' : 'payment';
+
+    const session = await stripe.checkout.sessions.create({
+      mode,
+      line_items: [
+        {
+          price: pkg.priceId,
+          quantity: 1,
+        },
+      ],
+      success_url:
+        successUrl ||
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sucesso?ch=${channel}`,
+      cancel_url:
+        cancelUrl ||
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages`,
+      metadata: {
+        channel,                      // <- o webhook usa isso para saber se é whatsapp ou webchat
+        username,
+        packageType: String(packageType),
+      },
+      allow_promotion_codes: true,
+    });
+
+    return res.json({ id: session.id, url: session.url });
+  } catch (e: any) {
+    console.error('[checkoutPackage] erro:', e?.message || e);
+    // mensagem de erro amigável quando o price do Stripe é recorrente e o modo é payment
+    if (
+      typeof e?.message === 'string' &&
+      e.message.includes('You specified `payment` mode but passed a recurring price')
+    ) {
+      return res.status(500).json({
+        error:
+          'O preço configurado no Stripe é recorrente, mas o checkout está em modo pagamento. Altere o pacote para mode:"subscription" ou use um price de pagamento único.',
+      });
+    }
+    return res.status(500).json({ error: 'Falha ao criar checkout' });
   }
 });
 

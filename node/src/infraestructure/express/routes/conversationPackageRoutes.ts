@@ -1,64 +1,114 @@
 // src/infraestructure/express/routes/conversationPackageRoutes.ts
 import { Router, Request, Response } from 'express';
-import { authenticateJWT } from '../middleware/authMiddleware';
-import ConversationQuota from '../../mongo/models/conversationQuotaModel';
-import { PACKAGES } from '../../../utils/packages';
+import Stripe from 'stripe';
+import dotenv from 'dotenv';
+import { getPackage } from '../../../utils/packages';
+
+dotenv.config();
 
 const router = Router();
 
-const CHARS_PER_CONVERSATION = 350;
-
-type PackageType = keyof typeof PACKAGES;
-
-interface JWTUser {
-  username: string;
-  role: 'admin' | 'user';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+if (!STRIPE_SECRET_KEY) {
+  console.warn('[billing] STRIPE_SECRET_KEY não configurada — checkout não funcionará.');
 }
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
-// POST /api/payment/activate-package
-router.post('/activate-package', authenticateJWT, async (req: Request, res: Response) => {
+// Tipos aceitos para o canal
+type Channel = 'whatsapp' | 'webchat';
+
+/**
+ * POST /api/billing/checkout-package
+ * body: {
+ *   packageType: number;            // ex.: 29|59|99 para whatsapp, 19|39|79 para webchat (conforme utils/packages)
+ *   channel?: "whatsapp"|"webchat"; // default: "whatsapp"
+ *   successUrl?: string;
+ *   cancelUrl?: string;
+ * }
+ *
+ * Observação:
+ * - Este endpoint pressupõe que você está autenticado (req.user.username). Se quiser permitir compras públicas,
+ *   aceite username no body e remova a exigência de token.
+ */
+router.post('/billing/checkout-package', async (req: Request, res: Response) => {
   try {
-    const user = (req as Request & { user?: JWTUser }).user;
-    if (!user) return res.status(401).json({ error: 'Usuário não autenticado' });
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe não configurado no servidor' });
+    }
 
-    const { username } = user;
-    const { packageType } = req.body as { packageType: number };
+    const {
+      packageType,
+      channel: channelRaw,
+      successUrl,
+      cancelUrl,
+    } = req.body as {
+      packageType?: number;
+      channel?: Channel;
+      successUrl?: string;
+      cancelUrl?: string;
+    };
 
-    const pacote = PACKAGES[packageType as PackageType];
-    if (!pacote) return res.status(400).json({ error: 'Pacote inválido' });
+    // username preferencialmente do token
+    const username =
+      (req as any)?.user?.username ||
+      (req.body && typeof req.body.username === 'string' ? req.body.username : '');
 
-    // Upsert e reset do consumo em caracteres
-    const quota = await ConversationQuota.findOneAndUpdate(
-      { username },
-      {
-        $setOnInsert: { username, createdAt: new Date() },
-        $set: {
-          totalConversations: pacote.conversations,
-          usedCharacters: 0,          // zera consumo
-          packageType: Number(packageType),
-          updatedAt: new Date(),
+    if (!username) {
+      return res.status(401).json({ error: 'Usuário não autenticado (username ausente)' });
+    }
+
+    // Canal padrão = whatsapp, tipado corretamente
+    const channel: Channel = channelRaw === 'webchat' ? 'webchat' : 'whatsapp';
+
+    if (!Number.isInteger(packageType)) {
+      return res.status(400).json({ error: 'packageType inválido' });
+    }
+
+    // Busca o pacote unificado conforme canal
+    const pkg = getPackage(channel, packageType as number);
+    if (!pkg) {
+      return res.status(400).json({ error: 'Pacote inexistente para este canal' });
+    }
+
+    // Define o modo do checkout: 'payment' (one-time) ou 'subscription' (recorrente)
+    const mode: 'payment' | 'subscription' = (pkg.mode as any) === 'subscription' ? 'subscription' : 'payment';
+
+    const session = await stripe.checkout.sessions.create({
+      mode,
+      line_items: [
+        {
+          price: pkg.priceId,
+          quantity: 1,
         },
+      ],
+      success_url:
+        successUrl ||
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sucesso?ch=${channel}`,
+      cancel_url:
+        cancelUrl ||
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages`,
+      metadata: {
+        channel,                      // <- importantíssimo pro webhook
+        username,
+        packageType: String(packageType),
       },
-      { new: true, upsert: true }
-    ).lean();
-
-    const usedConversations = Math.ceil((quota!.usedCharacters || 0) / CHARS_PER_CONVERSATION);
-    const remainingConversations = Math.max((quota!.totalConversations || 0) - usedConversations, 0);
-
-    res.json({
-      message: 'Pacote ativado com sucesso',
-      quota: {
-        username: quota!.username,
-        totalConversations: quota!.totalConversations || 0,
-        usedConversations,
-        remainingConversations,
-        usedCharacters: quota!.usedCharacters || 0,
-        packageType: quota!.packageType ?? null,
-      },
+      allow_promotion_codes: true,
     });
-  } catch (err) {
-    console.error('Erro ao ativar pacote:', err);
-    res.status(500).json({ error: 'Erro interno ao ativar pacote' });
+
+    return res.json({ id: session.id, url: session.url });
+  } catch (e: any) {
+    console.error('[billing][checkout-package] erro:', e?.message || e);
+    // Mensagem amigável se estiver passando price recorrente com mode=payment (ou vice-versa)
+    if (
+      typeof e?.message === 'string' &&
+      e.message.includes('You specified `payment` mode but passed a recurring price')
+    ) {
+      return res.status(500).json({
+        error:
+          'O preço configurado no Stripe é recorrente, mas o checkout está em modo pagamento. Altere o pacote para mode:"subscription" ou use um price de pagamento único.',
+      });
+    }
+    return res.status(500).json({ error: 'Falha ao criar checkout' });
   }
 });
 

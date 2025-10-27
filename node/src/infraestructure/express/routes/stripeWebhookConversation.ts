@@ -1,27 +1,32 @@
 // src/infraestructure/express/routes/stripeWebhookConversation.ts
-import express from 'express';
+import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
-import ConversationQuota, { IConversationQuota } from '../../mongo/models/conversationQuotaModel';
-import NumberRequest from '../../mongo/models/numberRequestModel';
-import { PACKAGES } from '../../../utils/packages';
+import dotenv from 'dotenv';
+
+import ConversationQuota from '../../mongo/models/conversationQuotaModel';
+import WebchatQuota from '../../mongo/models/webchatQuotaModel';
+
+import { PACKAGES, getPackage } from '../../../utils/packages'; // <- unificado (whatsapp + webchat)
+export type Channel = 'whatsapp' | 'webchat';
+
+dotenv.config();
 
 const router = express.Router();
 
-if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY não configurada');
-if (!process.env.STRIPE_WEBHOOK_SECRET) throw new Error('STRIPE_WEBHOOK_SECRET não configurada');
+/**
+ * IMPORTANTE:
+ * - Este arquivo espera que o setupRoutes tenha montado este router com express.raw({type:'application/json'})
+ *   ANTES do express.json(), para que a verificação de assinatura do Stripe funcione.
+ */
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2025-05-28.basil' as any,
-});
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const DISABLE_VERIFY = process.env.DISABLE_STRIPE_SIG_VERIFY === 'true';
 
-// ==========================================================
-// 🔧 TEST MODE: período de 1 minuto (para testes locais)
-// ==========================================================
-const CHARS_PER_CONVERSATION = 500;
+const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PERIOD_MS = 30 * DAY_MS; // ~1 mês // <<< alterado de 30 dias para 1 minuto
-
+const PERIOD_MS = 30 * DAY_MS;
 function addPeriod(from: Date = new Date()) {
   return new Date(from.getTime() + PERIOD_MS);
 }
@@ -31,16 +36,12 @@ function isExpired(end?: Date | string | null) {
   return Number.isNaN(d.getTime()) || Date.now() > d.getTime();
 }
 
-// ==========================================================
-// Funções utilitárias de normalização de purchaseId
-// ==========================================================
+// ---------- Normalizações de IDs para idempotência ----------
 function normalizePurchaseIdFromSession(session: Stripe.Checkout.Session): string {
-  const inv =
-    (typeof session.invoice === 'string' ? session.invoice : (session.invoice as any)?.id) || null;
-  const pi =
-    (typeof session.payment_intent === 'string'
-      ? session.payment_intent
-      : (session.payment_intent as any)?.id) || null;
+  const inv = (typeof session.invoice === 'string' ? session.invoice : (session.invoice as any)?.id) || null;
+  const pi = (typeof session.payment_intent === 'string'
+    ? session.payment_intent
+    : (session.payment_intent as any)?.id) || null;
   return inv || pi || session.id;
 }
 function normalizePurchaseIdFromInvoice(invoice: Stripe.Invoice | any): string {
@@ -48,138 +49,149 @@ function normalizePurchaseIdFromInvoice(invoice: Stripe.Invoice | any): string {
 }
 function normalizePurchaseIdFromSubscription(sub: Stripe.Subscription): string {
   const latestInv =
-    (typeof sub.latest_invoice === 'string' ? sub.latest_invoice : (sub.latest_invoice as any)?.id) ||
-    null;
+    (typeof sub.latest_invoice === 'string' ? sub.latest_invoice : (sub.latest_invoice as any)?.id) || null;
   return latestInv || sub.id;
 }
 
-// ==========================================================
-// Core: ativar/renovar pacote
-// ==========================================================
-async function activatePackage(
-  username: string | undefined | null,
-  packageTypeStr: string | undefined | null,
-  source: string,
-  purchaseId?: string | null
-) {
-  const u = username?.trim();
-  const p = Number(packageTypeStr) as keyof typeof PACKAGES;
-
-  if (!u || !p || !PACKAGES[p]) {
-    console.warn(`❌ Metadata/pacote inválido (${source}):`, { username: u, packageTypeStr });
-    return;
-  }
-
-  const pacote = PACKAGES[p];
+// ---------- Crédito de pacote por canal ----------
+async function creditWhatsapp(username: string, conversationsToAdd: number, purchaseId?: string | null) {
+  // ConversationQuota: { username, totalConversations, usedCharacters, ... }
   const now = new Date();
-  const newStart = now;
-  const newEnd = addPeriod(now); // <<< 1 minuto a partir de agora
+  const doc = await ConversationQuota.findOne({ username }).lean();
 
-  let current = await ConversationQuota.findOne({ username: u });
-
-  if (purchaseId && current?.lastStripeCheckoutId === purchaseId) {
-    console.log(`⚠️ [${source}] Ignorado (idempotência): purchaseId já aplicado`, { username: u, purchaseId });
-    return;
-  }
-
-  if (!current || isExpired(current.periodEnd)) {
-    const quota = (await ConversationQuota.findOneAndUpdate(
-      { username: u },
+  if (!doc || isExpired((doc as any).periodEnd)) {
+    await ConversationQuota.findOneAndUpdate(
+      { username },
       {
-        $setOnInsert: { username: u, createdAt: new Date() },
+        $setOnInsert: { username, createdAt: now },
         $set: {
-          packageType: Number(p),
-          totalConversations: pacote.conversations,
+          totalConversations: conversationsToAdd,
           usedCharacters: 0,
+          updatedAt: now,
+          periodStart: now,
+          periodEnd: addPeriod(now),
           lastStripeCheckoutId: purchaseId ?? null,
-          coins: pacote.conversations,
-          coinsExpiresAt: newEnd,
-          periodStart: newStart,
-          periodEnd: newEnd,
-          updatedAt: new Date(),
         },
       },
       { new: true, upsert: true }
-    )) as IConversationQuota;
-
-    console.log(`✅ [${source}] Novo período 1m (reset): +${pacote.conversations} conv. p/ ${u}`);
-    console.log('📄 Estado:', {
-      username: quota?.username,
-      periodStart: quota?.periodStart,
-      periodEnd: quota?.periodEnd,
-      totalConversations: quota?.totalConversations,
-      usedCharacters: quota?.usedCharacters,
-      packageType: quota?.packageType,
-      coins: quota?.coins,
-      coinsExpiresAt: quota?.coinsExpiresAt,
-      lastStripeCheckoutId: quota?.lastStripeCheckoutId,
-    });
+    ).lean();
     return;
   }
 
-  current.totalConversations = (current.totalConversations || 0) + pacote.conversations;
-  current.coins = (current.coins || 0) + pacote.conversations;
-  current.periodStart = newStart;
-  current.periodEnd = newEnd;
-  current.coinsExpiresAt = newEnd;
-  current.packageType = Number(p);
-  current.lastStripeCheckoutId = purchaseId ?? current.lastStripeCheckoutId ?? null;
-  current.updatedAt = new Date();
-  await current.save();
-
-  console.log(`✅ [${source}] Período ativo: somado +${pacote.conversations} conv. e REINICIADO 1m a partir de agora p/ ${u}`);
-  console.log('📄 Estado:', {
-    username: current.username,
-    periodStart: current.periodStart,
-    periodEnd: current.periodEnd,
-    totalConversations: current.totalConversations,
-    usedCharacters: current.usedCharacters,
-    packageType: current.packageType,
-    coins: current.coins,
-    coinsExpiresAt: current.coinsExpiresAt,
-    lastStripeCheckoutId: current.lastStripeCheckoutId,
-  });
+  await ConversationQuota.updateOne(
+    { username },
+    {
+      $inc: { totalConversations: conversationsToAdd },
+      $set: {
+        updatedAt: now,
+        periodStart: now,
+        periodEnd: addPeriod(now),
+        lastStripeCheckoutId: purchaseId ?? (doc as any).lastStripeCheckoutId ?? null,
+      },
+    }
+  );
 }
 
-// ==========================================================
-// Auxiliar: marcar NumberRequest como pago
-// ==========================================================
-async function markNumberRequestPaid(nrId?: string | null, sessionId?: string) {
-  if (!nrId) return;
-  const nr = await NumberRequest.findById(nrId);
-  if (!nr) {
-    console.warn('⚠️ numberRequestId não encontrado:', nrId);
+async function creditWebchat(username: string, conversationsToAdd: number, purchaseId?: string | null) {
+  const now = new Date();
+  const doc = await WebchatQuota.findOne({ username });
+
+  if (!doc || isExpired(doc.periodEnd)) {
+    await WebchatQuota.findOneAndUpdate(
+      { username },
+      {
+        $setOnInsert: { username, createdAt: now },
+        $set: {
+          totalConversations: conversationsToAdd,
+          usedCharacters: 0,
+          updatedAt: now,
+          periodStart: now,
+          periodEnd: addPeriod(now),
+          lastStripeCheckoutId: purchaseId ?? null,
+        },
+      },
+      { new: true, upsert: true }
+    );
     return;
   }
-  nr.status = 'paid';
-  nr.paidAt = new Date();
-  if (!nr.checkoutSessionId && sessionId) nr.checkoutSessionId = sessionId;
-  await nr.save();
-  console.log('✅ NumberRequest marcado como paid:', nr.id);
+
+  await WebchatQuota.updateOne(
+    { username },
+    {
+      $inc: { totalConversations: conversationsToAdd },
+      $set: {
+        updatedAt: new Date(),
+        periodStart: now,
+        periodEnd: addPeriod(now),
+        lastStripeCheckoutId: purchaseId ?? doc.lastStripeCheckoutId ?? null,
+      },
+    }
+  );
 }
 
-// ==========================================================
-// Webhook Stripe
-// ==========================================================
+async function creditPackageByChannel(
+  channel: Channel,
+  username: string,
+  packageType: number,
+  purchaseId?: string | null
+) {
+  // Busca o pacote no arquivo unificado
+  const pkg = getPackage(channel, packageType);
+  if (!pkg) {
+    console.warn(`[BILLING] pacote inexistente: channel=${channel} packageType=${packageType}`);
+    return;
+  }
+
+  const conversationsToAdd = Number(pkg.conversations) || 0;
+  if (conversationsToAdd <= 0) {
+    console.warn(`[BILLING] conversations inválido no pacote:`, { channel, packageType, pkg });
+    return;
+  }
+
+  if (channel === 'whatsapp') {
+    await creditWhatsapp(username, conversationsToAdd, purchaseId || null);
+  } else if (channel === 'webchat') {
+    await creditWebchat(username, conversationsToAdd, purchaseId || null);
+  }
+}
+
+// ---------- Leitura de metadata com segurança ----------
+function getMeta(obj: any): { channel?: Channel; username?: string; packageType?: number } {
+  const md = (obj?.metadata || {}) as Record<string, string | undefined>;
+  const channelRaw = md.channel;
+  const username = md.username;
+  const packageTypeStr = md.packageType;
+
+  // Canal sempre string
+  const channel = (channelRaw === 'whatsapp' || channelRaw === 'webchat') ? channelRaw : undefined;
+
+  // packageType vira number seguro
+  const packageType = packageTypeStr ? Number(packageTypeStr) : undefined;
+
+  return { channel, username, packageType };
+}
+
+// ---------- Webhook ----------
 router.post(
   ['/billing/package-webhook', '/billing/webhook'],
   express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    const sig = req.headers['stripe-signature'] as string | undefined;
-    const SKIP_VERIFY = process.env.DISABLE_STRIPE_SIG_VERIFY === 'true';
-
+  async (req: Request, res: Response) => {
     try {
-      const isBuf = Buffer.isBuffer(req.body);
-      console.log('[BILLING] webhook hit:', req.originalUrl, 'sig?', !!sig, 'rawBuffer?', isBuf);
+      if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+        console.warn('[BILLING] Stripe webhook desabilitado (env ausentes).');
+        return res.status(200).send('WEBHOOK_DISABLED');
+      }
 
+      const sig = req.headers['stripe-signature'] as string | undefined;
       let event: Stripe.Event;
-      if (SKIP_VERIFY) {
-        const raw = isBuf ? req.body.toString('utf8') : JSON.stringify(req.body);
-        console.warn('!!! DEV ONLY: Stripe signature verification DISABLED');
+
+      if (DISABLE_VERIFY) {
+        const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body);
+        console.warn('!!! DEV ONLY: assinatura Stripe DESABILITADA (billing webhook)');
         event = JSON.parse(raw);
       } else {
         if (!sig) return res.status(400).send('Missing stripe-signature');
-        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+        event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
       }
 
       console.log('[BILLING] webhook type:', event.type);
@@ -187,23 +199,17 @@ router.post(
       switch (event.type) {
         case 'checkout.session.completed': {
           const session = event.data.object as Stripe.Checkout.Session;
-          const md = session.metadata || {};
-          await markNumberRequestPaid(md.numberRequestId as any, session.id);
+          const { channel, username, packageType } = getMeta(session);
+          const purchaseId = normalizePurchaseIdFromSession(session);
 
-          const normalizedId = normalizePurchaseIdFromSession(session);
-          await activatePackage(md.username as any, md.packageType as any, 'checkout.session.completed', normalizedId);
-          break;
-        }
+          if (!channel || !username || !packageType) {
+            console.warn('❌ Metadata/pacote inválido (checkout.session.completed):', {
+              channel, username, packageType,
+            });
+            break;
+          }
 
-        case 'customer.subscription.created': {
-          const sub = event.data.object as Stripe.Subscription;
-          const md = sub.metadata || {};
-          const normalizedId = normalizePurchaseIdFromSubscription(sub);
-          console.log('[BILLING] customer.subscription.created (info):', {
-            username: md.username,
-            packageType: md.packageType,
-            normalizedId,
-          });
+          await creditPackageByChannel(channel, username, packageType, purchaseId);
           break;
         }
 
@@ -211,38 +217,68 @@ router.post(
         case 'invoice.payment_succeeded':
         case 'invoice_payment.paid': {
           const invoiceAny: any = event.data.object;
-          const subId: string | undefined =
-            (typeof invoiceAny.subscription === 'string'
-              ? invoiceAny.subscription
-              : invoiceAny.subscription?.id) ??
-            invoiceAny.subscription_details?.subscription ??
-            invoiceAny.lines?.data?.find((li: any) => li.subscription)?.subscription;
 
-          let md: Record<string, string | undefined> = {};
-          if (subId) {
-            try {
-              const subscription = await stripe.subscriptions.retrieve(subId);
-              md = subscription.metadata || {};
-            } catch (e) {
-              console.error('[BILLING] Falha ao recuperar subscription p/', event.type, e);
-              md = (invoiceAny.metadata as any) || {};
+          // tenta recuperar subscription para obter metadata herdada
+          let channel: Channel | undefined;
+          let username: string | undefined;
+          let packageType: number | undefined;
+
+          const metaInvoice = getMeta(invoiceAny);
+          channel = metaInvoice.channel;
+          username = metaInvoice.username;
+          packageType = metaInvoice.packageType;
+
+          // Se vieram vazios, tenta via subscription
+          if (!channel || !username || !packageType) {
+            const subId: string | undefined =
+              (typeof invoiceAny.subscription === 'string'
+                ? invoiceAny.subscription
+                : invoiceAny.subscription?.id) ??
+              undefined;
+
+            if (subId) {
+              try {
+                const subscription = await stripe.subscriptions.retrieve(subId);
+                const metaSub = getMeta(subscription);
+                channel = channel || metaSub.channel;
+                username = username || metaSub.username;
+                packageType = packageType || metaSub.packageType;
+              } catch (e) {
+                // ignorar
+              }
             }
-          } else {
-            md = (invoiceAny.metadata as any) || {};
           }
 
-          const normalizedId = normalizePurchaseIdFromInvoice(invoiceAny);
-          await activatePackage(md.username as any, md.packageType as any, `${event.type}->normalized`, normalizedId);
+          if (!channel || !username || !packageType) {
+            console.warn(`❌ Metadata/pacote inválido (${event.type}->normalized):`, {
+              channel, username, packageType,
+            });
+            break;
+          }
+
+          const purchaseId = normalizePurchaseIdFromInvoice(invoiceAny);
+          await creditPackageByChannel(channel, username, packageType, purchaseId);
+          break;
+        }
+
+        case 'customer.subscription.created': {
+          const sub = event.data.object as Stripe.Subscription;
+          const { channel, username, packageType } = getMeta(sub);
+          const normalizedId = normalizePurchaseIdFromSubscription(sub);
+          console.log('[BILLING] customer.subscription.created (info):', {
+            channel, username, packageType, normalizedId,
+          });
           break;
         }
 
         default: {
+          // muitos eventos do Stripe não exigem ação — registre só por debug
           if (
-            event.type.startsWith('invoice.') ||
-            event.type.startsWith('invoice_') ||
-            event.type.startsWith('payment_intent.') ||
-            event.type.startsWith('charge.') ||
-            event.type.startsWith('customer.')
+            event.type.startsWith('invoice') ||
+            event.type.startsWith('payment_intent') ||
+            event.type.startsWith('charge') ||
+            event.type.startsWith('customer') ||
+            event.type.startsWith('payment_method')
           ) {
             console.log('[BILLING] (info) evento ignorado:', event.type);
           }
@@ -252,7 +288,7 @@ router.post(
 
       return res.json({ received: true });
     } catch (err: any) {
-      console.error('[BILLING] webhook conversation error:', err?.message || err);
+      console.error('[BILLING] webhook error:', err?.message || err);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
   }
