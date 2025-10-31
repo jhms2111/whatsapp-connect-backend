@@ -13,16 +13,18 @@ export interface IMessage extends Document {
 }
 
 const messageSchema = new Schema<IMessage>({
-  roomId: { type: String, required: true },
+  roomId: { type: String, required: true, index: true },
   sender: { type: String, required: true },
   message: { type: String, required: true },
   sent: { type: Boolean, required: true },
-  timestamp: { type: Date, default: Date.now },
+  timestamp: { type: Date, default: Date.now, index: true },
   fileUrl: { type: String },
   fileName: { type: String },
   fileType: { type: String },
   to: { type: String },
 });
 
-const Message = mongoose.model<IMessage>('Message', messageSchema);
+const Message =
+  mongoose.models.Message || mongoose.model<IMessage>('Message', messageSchema);
+
 export default Message;

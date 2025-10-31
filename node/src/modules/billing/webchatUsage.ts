@@ -1,3 +1,5 @@
+//webchatUsage.ts
+
 import WebchatQuota, { IWebchatQuota } from '../../infraestructure/mongo/models/webchatQuotaModel';
 
 const CHARS_PER_CONVERSATION = 500;

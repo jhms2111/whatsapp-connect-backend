@@ -6,6 +6,28 @@ import { requireActiveUser } from '../middleware/requireActiveUser';
 
 const router = Router();
 
+/**
+ * GET /api/bots
+ * Lista todos os bots do usuário autenticado.
+ * O SocketContext.js espera um array e lê data[0]?._id.
+ */
+router.get('/bots', authenticateJWT, requireActiveUser, async (req: Request, res: Response) => {
+  try {
+    const username = (req as any)?.user?.username;
+    if (!username) return res.status(401).json({ error: 'Usuário não autenticado.' });
+
+    const bots = await Bot.find({ owner: username }).lean();
+    return res.json(Array.isArray(bots) ? bots : []);
+  } catch (err) {
+    console.error('Erro ao listar bots:', err);
+    return res.status(500).json({ error: 'Erro ao listar bots' });
+  }
+});
+
+/**
+ * POST /api/bot
+ * Cria um novo bot (mantém sua lógica original).
+ */
 router.post('/bot', authenticateJWT, requireActiveUser, async (req: Request, res: Response) => {
   const {
     persona,

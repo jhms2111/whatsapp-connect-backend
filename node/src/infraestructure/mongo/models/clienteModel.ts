@@ -47,6 +47,13 @@ const ClienteSchema = new Schema<ICliente>(
   { timestamps: { createdAt: true, updatedAt: true } }
 );
 
+
+ClienteSchema.index(
+  { 'webchatTrial.phoneE164': 1 },
+  { unique: true, partialFilterExpression: { 'webchatTrial.claimed': true } }
+);
+
+
 // Evita recompilar o model no hot-reload
 export default mongoose.models.Cliente ||
   mongoose.model<ICliente>('Cliente', ClienteSchema);

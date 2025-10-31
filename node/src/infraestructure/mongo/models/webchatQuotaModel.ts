@@ -1,14 +1,15 @@
+// src/infraestructure/mongo/models/webchatQuotaModel.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IWebchatQuota extends Document {
   username: string;
 
-  totalConversations: number;  // alocadas para o período atual (WebChat)
-  usedCharacters: number;      // usados no período atual (WebChat)
-  packageType: number | null;  // 19/39/79... conforme pacotes WebChat
+  totalConversations: number;   // alocadas para o período atual (WebChat)
+  usedCharacters: number;       // usados no período atual (WebChat)
+  packageType: number | null;   // 19/39/79... conforme pacotes WebChat
   lastStripeCheckoutId: string | null;
 
-  coins?: number;              // opcional, se quiser “moeda” de WebChat
+  coins?: number;               // opcional, se quiser “moeda” de WebChat
   coinsExpiresAt?: Date | null;
 
   periodStart?: Date | null;
@@ -36,11 +37,13 @@ const WebchatQuotaSchema = new Schema<IWebchatQuota>({
   updatedAt: { type: Date, default: () => new Date() },
 });
 
+// Atualiza updatedAt em todo save
 WebchatQuotaSchema.pre('save', function (next) {
   (this as any).updatedAt = new Date();
   next();
 });
 
+// Evita recompilar o model em hot-reload
 const WebchatQuota =
   mongoose.models.WebchatQuota ||
   mongoose.model<IWebchatQuota>('WebchatQuota', WebchatQuotaSchema);

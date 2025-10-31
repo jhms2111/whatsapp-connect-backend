@@ -1,5 +1,5 @@
 // src/infraestructure/express/setupRoutes.ts
-import express, { Express, Request, Response } from 'express';
+import express, { Express } from 'express';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
@@ -16,11 +16,16 @@ import { handleSocketConnection } from './handleSocketConnection';
 import { authenticateJWT } from './middleware/authMiddleware';
 import { requireActiveUser, shouldSkipActiveCheck } from './middleware/requireActiveUser';
 
+import webchatBotsRoutes from './routes/webchatBotsRoutes';
+
 // === rotas já existentes ===
 import messageRoutes from './routes/messageRoutes';
 import roomRoutes from './routes/roomRoutes';
 import chatMessageRoutes from './routes/chatMessageRoutes';
-import sendWhatsapp from './routes/sendWhatsapp';
+
+// 👇 IMPORTA a rota + o injector
+import sendWhatsapp, { injectSocketIO as injectSocketIOSend } from './routes/sendWhatsapp';
+
 import historyRoutes from './routes/historyRoutes';
 import productDeleteRoutes from './routes/productDeleteRoutes';
 import productEditRoutes from './routes/productEditRoutes';
@@ -48,7 +53,10 @@ import meRoutes from './routes/meRoutes';
 import billingRoutes from './routes/billingRoutes';
 import adminNumberAccessRoutes from './routes/adminNumberAccessRoutes';
 import adminUserRoutes from './routes/adminUserRoutes';
-import whatsappWebhook from './routes/whatsappWebhook';
+
+// 👇 IMPORTA a rota + o injector
+import whatsappWebhook, { injectSocketIO as injectSocketIOWebhook } from './routes/whatsappWebhook';
+
 import sessionRoutes from './routes/sessionRoutes';
 import conversationQuotaRoutes from './routes/conversationQuotaRoutes';
 import productRoutes from './routes/productRoutes';
@@ -68,7 +76,7 @@ import FollowUpSchedule from '../mongo/models/followUpQueueModel';
 import qrCodeRoutes from './routes/qrCodeRoutes';
 import passwordRoutes from './routes/passwordRoutes';
 
-// 👇 NOVO: webchat público
+// 👇 webchat público (sem token)
 import webchatRoutes from './routes/webchatRoutes';
 
 // (opcional) checkout e webhook do WebChat
@@ -77,6 +85,17 @@ import webchatWebhook from './routes/webchatWebhook';
 import webchatPrivateRoutes from './routes/webchatPrivateRoutes';
 
 import billingCheckoutUnified from './routes/billingCheckoutUnified'
+
+import webchatHistoryRoutes from './routes/webchatHistoryRoutes';
+import webChatMessagesRoutes from './routes/webchatMessagesRoutes'
+import webchatTrialRoutes from './routes/webchatTrialRoutes';
+
+import webchatBotsGlobalStatusRoutes from './routes/webchatBotsGlobalStatusRoutes';
+
+// 👇 VISITANTE webchat (SEM token)
+import webchatVisitorRoutes from './routes/webchatVisitorRoutes';
+
+import webchatPanelRoutes from './routes/webchatPanelRoutes';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
 
@@ -107,6 +126,9 @@ async function dropLegacyFollowUpIndex() {
 export function setupRoutes(io: Server): Express {
   const app = express();
 
+  // socket no app
+  app.set('io', io);
+
   // CORS
   app.use(
     cors({
@@ -119,7 +141,7 @@ export function setupRoutes(io: Server): Express {
   // 1) Webhooks ANTES (raw se necessário no arquivo do webhook)
   app.use('/api', stripeWebhookConversation);
 
-  // 2) Parsers
+  // 2) Parsers (garante JSON no body)
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
@@ -133,10 +155,10 @@ export function setupRoutes(io: Server): Express {
   // 👇 WEBCHAT público (SEM token)
   app.use('/api', webchatRoutes);
 
-  // (opcional) Checkout do WebChat — mantemos PROTEGIDO (logado)
-  // app.use('/api', webchatCheckoutRoutes);  // se quiser expor
+  // 👇 VISITANTE do WEBCHAT (SEM token) — **AGORA AQUI, ANTES DO AUTH**
+  app.use('/api', webchatVisitorRoutes);
 
-  // (opcional) Webhook do WebChat — deve ser público (raw no próprio arquivo)
+  // (opcional) Webhook do WebChat — público
   app.use('/api', webchatWebhook);
 
   // Health/check — público
@@ -213,14 +235,20 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', qrCodeRoutes);
   app.use('/api', passwordRoutes);
 
-  app.use('/api', webchatPrivateRoutes); // 👈 AQUI
+  app.use('/api', webchatPrivateRoutes);
 
+  // (opcional) checkout do webchat
   app.use('/api', webchatCheckoutRoutes);
 
-
   app.use('/api', billingCheckoutUnified);
-  
-  
+
+  app.use('/api', webchatHistoryRoutes);
+  app.use('/api', webChatMessagesRoutes);
+  app.use('/api', webchatTrialRoutes);
+
+  app.use('/api', webchatBotsGlobalStatusRoutes);
+
+  app.use('/api', webchatPanelRoutes);
 
   // 6) Estáticos / Twilio / Uploads
   app.set('trust proxy', true);
@@ -234,11 +262,14 @@ export function setupRoutes(io: Server): Express {
     console.log(`Servidor escutando em http://localhost:${PORT}`);
   });
 
+  // ✅ injeta 'io' nas rotas que precisam emitir eventos em tempo real
+  injectSocketIOWebhook(io);
+  injectSocketIOSend(io);
+
   dropLegacyFollowUpIndex().catch(() => {});
   startFollowUpWorker(io);
 
   io.use(async (socket, next) => {
-    // permitir conexão sem token (público)
     const raw = socket.handshake.auth?.token;
     if (!raw || raw === 'null' || raw === 'undefined') {
       return next();

@@ -3,15 +3,15 @@ import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
 
-import ConversationQuota from '../../mongo/models/conversationQuotaModel';
-import WebchatQuota from '../../mongo/models/webchatQuotaModel';
+// ⚠️ Mantive seus caminhos. Se seu tsconfig usa "paths" ou barrels, deixar explícito ajuda a evitar colisões.
+import type { Model } from 'mongoose';
+import ConversationQuotaModel from '../../mongo/models/conversationQuotaModel';
+import WebchatQuotaModel from '../../mongo/models/webchatQuotaModel';
 
 import { PACKAGES, getPackage } from '../../../utils/packages'; // <- unificado (whatsapp + webchat)
 export type Channel = 'whatsapp' | 'webchat';
 
 dotenv.config();
-
-const router = express.Router();
 
 /**
  * IMPORTANTE:
@@ -19,12 +19,21 @@ const router = express.Router();
  *   ANTES do express.json(), para que a verificação de assinatura do Stripe funcione.
  */
 
+// Renomeado para evitar qualquer sombra/colisão de nome com outros arquivos
+const billingRouter = express.Router();
+
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const DISABLE_VERIFY = process.env.DISABLE_STRIPE_SIG_VERIFY === 'true';
 
+// Se quiser, defina explicitamente a apiVersion que você usa no projeto
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
+// ❗Dica: isso força o TS a tratar como Model do Mongoose mesmo se algum barrel bagunçar a resolução.
+const ConversationQuota = ConversationQuotaModel as unknown as Model<any>;
+const WebchatQuota = WebchatQuotaModel as unknown as Model<any>;
+
+// ============== Helpers de período ==============
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PERIOD_MS = 30 * DAY_MS;
 function addPeriod(from: Date = new Date()) {
@@ -36,28 +45,37 @@ function isExpired(end?: Date | string | null) {
   return Number.isNaN(d.getTime()) || Date.now() > d.getTime();
 }
 
-// ---------- Normalizações de IDs para idempotência ----------
+// ============== Normalizações de IDs (idempotência) ==============
 function normalizePurchaseIdFromSession(session: Stripe.Checkout.Session): string {
-  const inv = (typeof session.invoice === 'string' ? session.invoice : (session.invoice as any)?.id) || null;
-  const pi = (typeof session.payment_intent === 'string'
-    ? session.payment_intent
-    : (session.payment_intent as any)?.id) || null;
-  return inv || pi || session.id;
+  const inv =
+    (typeof session.invoice === 'string'
+      ? session.invoice
+      : (session.invoice as any)?.id) || null;
+  const pi =
+    (typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : (session.payment_intent as any)?.id) || null;
+  return (inv || pi || session.id) as string;
 }
 function normalizePurchaseIdFromInvoice(invoice: Stripe.Invoice | any): string {
   return invoice?.id;
 }
 function normalizePurchaseIdFromSubscription(sub: Stripe.Subscription): string {
   const latestInv =
-    (typeof sub.latest_invoice === 'string' ? sub.latest_invoice : (sub.latest_invoice as any)?.id) || null;
-  return latestInv || sub.id;
+    (typeof sub.latest_invoice === 'string'
+      ? sub.latest_invoice
+      : (sub.latest_invoice as any)?.id) || null;
+  return (latestInv || sub.id) as string;
 }
 
-// ---------- Crédito de pacote por canal ----------
-async function creditWhatsapp(username: string, conversationsToAdd: number, purchaseId?: string | null) {
-  // ConversationQuota: { username, totalConversations, usedCharacters, ... }
+// ============== Crédito por canal ==============
+async function creditWhatsapp(
+  username: string,
+  conversationsToAdd: number,
+  purchaseId?: string | null
+) {
   const now = new Date();
-  const doc = await ConversationQuota.findOne({ username }).lean();
+  const doc = await ConversationQuota.findOne({ username }).lean().exec();
 
   if (!doc || isExpired((doc as any).periodEnd)) {
     await ConversationQuota.findOneAndUpdate(
@@ -74,7 +92,7 @@ async function creditWhatsapp(username: string, conversationsToAdd: number, purc
         },
       },
       { new: true, upsert: true }
-    ).lean();
+    ).lean().exec();
     return;
   }
 
@@ -86,17 +104,22 @@ async function creditWhatsapp(username: string, conversationsToAdd: number, purc
         updatedAt: now,
         periodStart: now,
         periodEnd: addPeriod(now),
-        lastStripeCheckoutId: purchaseId ?? (doc as any).lastStripeCheckoutId ?? null,
+        lastStripeCheckoutId:
+          purchaseId ?? (doc as any).lastStripeCheckoutId ?? null,
       },
     }
-  );
+  ).exec();
 }
 
-async function creditWebchat(username: string, conversationsToAdd: number, purchaseId?: string | null) {
+async function creditWebchat(
+  username: string,
+  conversationsToAdd: number,
+  purchaseId?: string | null
+) {
   const now = new Date();
-  const doc = await WebchatQuota.findOne({ username });
+  const doc = await WebchatQuota.findOne({ username }).lean().exec();
 
-  if (!doc || isExpired(doc.periodEnd)) {
+  if (!doc || isExpired((doc as any).periodEnd)) {
     await WebchatQuota.findOneAndUpdate(
       { username },
       {
@@ -111,7 +134,7 @@ async function creditWebchat(username: string, conversationsToAdd: number, purch
         },
       },
       { new: true, upsert: true }
-    );
+    ).lean().exec();
     return;
   }
 
@@ -120,13 +143,14 @@ async function creditWebchat(username: string, conversationsToAdd: number, purch
     {
       $inc: { totalConversations: conversationsToAdd },
       $set: {
-        updatedAt: new Date(),
+        updatedAt: now,
         periodStart: now,
         periodEnd: addPeriod(now),
-        lastStripeCheckoutId: purchaseId ?? doc.lastStripeCheckoutId ?? null,
+        lastStripeCheckoutId:
+          purchaseId ?? (doc as any).lastStripeCheckoutId ?? null,
       },
     }
-  );
+  ).exec();
 }
 
 async function creditPackageByChannel(
@@ -138,13 +162,19 @@ async function creditPackageByChannel(
   // Busca o pacote no arquivo unificado
   const pkg = getPackage(channel, packageType);
   if (!pkg) {
-    console.warn(`[BILLING] pacote inexistente: channel=${channel} packageType=${packageType}`);
+    console.warn(
+      `[BILLING] pacote inexistente: channel=${channel} packageType=${packageType}`
+    );
     return;
   }
 
   const conversationsToAdd = Number(pkg.conversations) || 0;
   if (conversationsToAdd <= 0) {
-    console.warn(`[BILLING] conversations inválido no pacote:`, { channel, packageType, pkg });
+    console.warn(`[BILLING] conversations inválido no pacote:`, {
+      channel,
+      packageType,
+      pkg,
+    });
     return;
   }
 
@@ -155,25 +185,31 @@ async function creditPackageByChannel(
   }
 }
 
-// ---------- Leitura de metadata com segurança ----------
-function getMeta(obj: any): { channel?: Channel; username?: string; packageType?: number } {
+// ============== Leitura de metadata com segurança ==============
+function getMeta(obj: any): {
+  channel?: Channel;
+  username?: string;
+  packageType?: number;
+} {
   const md = (obj?.metadata || {}) as Record<string, string | undefined>;
   const channelRaw = md.channel;
   const username = md.username;
   const packageTypeStr = md.packageType;
 
-  // Canal sempre string
-  const channel = (channelRaw === 'whatsapp' || channelRaw === 'webchat') ? channelRaw : undefined;
+  const channel: Channel | undefined =
+    channelRaw === 'whatsapp' || channelRaw === 'webchat'
+      ? channelRaw
+      : undefined;
 
-  // packageType vira number seguro
   const packageType = packageTypeStr ? Number(packageTypeStr) : undefined;
 
   return { channel, username, packageType };
 }
 
-// ---------- Webhook ----------
-router.post(
+// ============== Webhook ==============
+billingRouter.post(
   ['/billing/package-webhook', '/billing/webhook'],
+  // ⚠️ É essencial estar ANTES do express.json() no app principal
   express.raw({ type: 'application/json' }),
   async (req: Request, res: Response) => {
     try {
@@ -186,12 +222,19 @@ router.post(
       let event: Stripe.Event;
 
       if (DISABLE_VERIFY) {
-        const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body);
+        const raw = Buffer.isBuffer(req.body)
+          ? req.body.toString('utf8')
+          : JSON.stringify(req.body);
         console.warn('!!! DEV ONLY: assinatura Stripe DESABILITADA (billing webhook)');
         event = JSON.parse(raw);
       } else {
         if (!sig) return res.status(400).send('Missing stripe-signature');
-        event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+        // req.body precisa ser o Buffer bruto (raw)
+        event = stripe.webhooks.constructEvent(
+          req.body,
+          sig,
+          STRIPE_WEBHOOK_SECRET
+        );
       }
 
       console.log('[BILLING] webhook type:', event.type);
@@ -203,13 +246,23 @@ router.post(
           const purchaseId = normalizePurchaseIdFromSession(session);
 
           if (!channel || !username || !packageType) {
-            console.warn('❌ Metadata/pacote inválido (checkout.session.completed):', {
-              channel, username, packageType,
-            });
+            console.warn(
+              '❌ Metadata/pacote inválido (checkout.session.completed):',
+              {
+                channel,
+                username,
+                packageType,
+              }
+            );
             break;
           }
 
-          await creditPackageByChannel(channel, username, packageType, purchaseId);
+          await creditPackageByChannel(
+            channel,
+            username,
+            packageType,
+            purchaseId
+          );
           break;
         }
 
@@ -218,7 +271,6 @@ router.post(
         case 'invoice_payment.paid': {
           const invoiceAny: any = event.data.object;
 
-          // tenta recuperar subscription para obter metadata herdada
           let channel: Channel | undefined;
           let username: string | undefined;
           let packageType: number | undefined;
@@ -233,8 +285,7 @@ router.post(
             const subId: string | undefined =
               (typeof invoiceAny.subscription === 'string'
                 ? invoiceAny.subscription
-                : invoiceAny.subscription?.id) ??
-              undefined;
+                : invoiceAny.subscription?.id) ?? undefined;
 
             if (subId) {
               try {
@@ -243,21 +294,27 @@ router.post(
                 channel = channel || metaSub.channel;
                 username = username || metaSub.username;
                 packageType = packageType || metaSub.packageType;
-              } catch (e) {
-                // ignorar
+              } catch {
+                // ignora erro ao recuperar sub
               }
             }
           }
 
           if (!channel || !username || !packageType) {
-            console.warn(`❌ Metadata/pacote inválido (${event.type}->normalized):`, {
-              channel, username, packageType,
-            });
+            console.warn(
+              `❌ Metadata/pacote inválido (${event.type}->normalized):`,
+              { channel, username, packageType }
+            );
             break;
           }
 
           const purchaseId = normalizePurchaseIdFromInvoice(invoiceAny);
-          await creditPackageByChannel(channel, username, packageType, purchaseId);
+          await creditPackageByChannel(
+            channel,
+            username,
+            packageType,
+            purchaseId
+          );
           break;
         }
 
@@ -266,13 +323,15 @@ router.post(
           const { channel, username, packageType } = getMeta(sub);
           const normalizedId = normalizePurchaseIdFromSubscription(sub);
           console.log('[BILLING] customer.subscription.created (info):', {
-            channel, username, packageType, normalizedId,
+            channel,
+            username,
+            packageType,
+            normalizedId,
           });
           break;
         }
 
         default: {
-          // muitos eventos do Stripe não exigem ação — registre só por debug
           if (
             event.type.startsWith('invoice') ||
             event.type.startsWith('payment_intent') ||
@@ -294,4 +353,4 @@ router.post(
   }
 );
 
-export default router;
+export default billingRouter;

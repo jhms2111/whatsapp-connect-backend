@@ -1,3 +1,4 @@
+// webchatWebhook.ts
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import WebchatQuota, { IWebchatQuota } from '../../mongo/models/webchatQuotaModel';
@@ -15,9 +16,7 @@ const STRIPE_WEBHOOK_SECRET_WEBCHAT = process.env.STRIPE_WEBHOOK_SECRET_WEBCHAT 
 const DISABLE_VERIFY = process.env.DISABLE_STRIPE_SIG_VERIFY_WEBCHAT === 'true';
 
 const stripe = STRIPE_SECRET_KEY_WEBCHAT
-  ? new Stripe(STRIPE_SECRET_KEY_WEBCHAT, {
-      // apiVersion: '2025-05-28.basil' as any,
-    })
+  ? new Stripe(STRIPE_SECRET_KEY_WEBCHAT /* , { apiVersion: '2023-10-16' } as any */)
   : null;
 
 /** Utilidades do período do pacote (30 dias por padrão) */
