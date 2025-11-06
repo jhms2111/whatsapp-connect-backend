@@ -1,13 +1,13 @@
-// src/infraestructure/mongo/models/botModel.ts
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IBot extends Document {
   name: string;
   persona: string;
-  about?: string;                 // "Quem somos"
-  guidelines?: string;            // instruções livres para o bot
+  about?: string;
+  guidelines?: string;
   temperature: number;
   product: mongoose.Types.ObjectId[];
+  catalogItems?: mongoose.Types.ObjectId[];
   owner: string;
   companyName?: string;
   address?: string;
@@ -22,7 +22,11 @@ const botSchema = new Schema<IBot>(
     about: { type: String },
     guidelines: { type: String },
     temperature: { type: Number, default: 0.5 },
-    product: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true }],
+
+    // ❗ sem "required: true"
+    product: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+    catalogItems: [{ type: mongoose.Schema.Types.ObjectId, ref: 'CatalogItem' }],
+
     companyName: { type: String },
     address: { type: String },
     email: { type: String },
@@ -32,4 +36,18 @@ const botSchema = new Schema<IBot>(
   { timestamps: true }
 );
 
-export default mongoose.model<IBot>('Bot', botSchema);
+// precisa ter ao menos 1 entre product OU catalogItems
+botSchema.pre('validate', function (next) {
+  const p = Array.isArray((this as any).product) ? (this as any).product : [];
+  const c = Array.isArray((this as any).catalogItems) ? (this as any).catalogItems : [];
+  if (p.length === 0 && c.length === 0) {
+    return next(
+      new mongoose.Error.ValidationError(new Error('Selecione ao menos um produto OU um item do catálogo.'))
+    );
+  }
+  next();
+});
+
+export default mongoose.models.Bot || mongoose.model<IBot>('Bot', botSchema);
+
+

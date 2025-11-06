@@ -97,6 +97,10 @@ import webchatVisitorRoutes from './routes/webchatVisitorRoutes';
 
 import webchatPanelRoutes from './routes/webchatPanelRoutes';
 
+import catalogRoutes from './routes/catalogRoutes'
+
+import catalogRouter from './routes/catalogRouter'
+
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
 
 async function dropLegacyFollowUpIndex() {
@@ -249,6 +253,15 @@ export function setupRoutes(io: Server): Express {
   app.use('/api', webchatBotsGlobalStatusRoutes);
 
   app.use('/api', webchatPanelRoutes);
+
+  app.use('/api', catalogRoutes);
+
+ // app.use('/api', catalogRouter);
+
+
+  
+
+
 
   // 6) Estáticos / Twilio / Uploads
   app.set('trust proxy', true);

@@ -1,10 +1,11 @@
 // src/api/routes/botMessageRoutes.ts
 import { Router, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Product, { IProduct } from '../../mongo/models/productModel';
 import Message from '../../mongo/models/messageModel';
 import ClientMemory from '../../mongo/models/clientMemoryModel';
 import Bot from '../../mongo/models/botModel';
-import Cliente from '../../mongo/models/clienteModel';
+import CatalogItem from '../../mongo/models/catalogItemModel';
 import {
   generateBotResponse,
   Product as LLMProduct,
@@ -23,6 +24,63 @@ interface CompanyData {
   email: string;
   phone: string;
 }
+
+/** ========= Helpers CatalogItem -> LLMProduct ========= */
+function pickStr(values: Record<string, any>, keys: string[], fallback = '') {
+  for (const k of keys) {
+    const v = values?.[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return fallback;
+}
+function pickNum(values: Record<string, any>, keys: string[], fallback = 0) {
+  for (const k of keys) {
+    const v = values?.[k];
+    const n = typeof v === 'number' ? v : Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+function catalogItemToLLMProduct(ci: any): LLMProduct {
+  const v = (ci?.values || {}) as Record<string, any>;
+  const name = pickStr(v, ['title', 'name', 'nome', 'título', 'titulo'], `#${ci?._id}`);
+  const description = pickStr(v, ['description', 'descrição', 'descricao', 'descripcion'], '');
+  const category = pickStr(v, ['category', 'categoria', 'tipo'], 'outros');
+  const price = pickNum(v, ['price', 'preço', 'preco', 'price_eur'], 0);
+  const price_eur = Number.isFinite(v?.price_eur) ? Number(v.price_eur) : undefined;
+  const allergens = Array.isArray(v.allergens) ? v.allergens : [];
+  const contains_pork = !!(v.contains_pork ?? v.porco);
+  const spicy = !!(v.spicy ?? v.picante);
+  const vegetarian = !!(v.vegetarian ?? v.vegetariano);
+  const vegan = !!(v.vegan ?? v.vegano);
+  const pregnancy_unsuitable = !!(v.pregnancy_unsuitable ?? v.gravidas_nao_recomendado);
+  const imageUrl =
+    Array.isArray(ci.images) && ci.images.length
+      ? ci.images[0]
+      : typeof v.image === 'string'
+      ? v.image
+      : undefined;
+
+  return {
+    id: String(ci._id),
+    category,
+    name,
+    description,
+    price,
+    price_eur: typeof price_eur === 'number' ? price_eur : null,
+    allergens,
+    contains_pork,
+    spicy,
+    vegetarian,
+    vegan,
+    pregnancy_unsuitable,
+    recommended_alcoholic: v.recommended_alcoholic ?? null,
+    recommended_non_alcoholic: v.recommended_non_alcoholic ?? null,
+    notes: v.notes ?? null,
+    imageUrl,
+  };
+}
+/** ===================================================== */
 
 router.post('/bot/:botId/message', async (req: Request, res: Response) => {
   const { botId } = req.params;
@@ -43,16 +101,14 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
   }
 
   try {
-    // 0) Carregue o bot e descubra o dono
-    const bot = await Bot.findById(botId).populate<{ product: IProduct | IProduct[] }>('product');
+    const bot = await Bot.findById(botId)
+      .populate<{ product: IProduct | IProduct[] }>('product')
+      .populate('catalogItems'); // 👈 essencial
     if (!bot) return res.status(404).json({ error: 'Bot não encontrado' });
 
     const ownerUsername: string | undefined = (bot as any).owner;
-    if (!ownerUsername) {
-      return res.status(400).json({ error: 'Bot sem owner associado' });
-    }
+    if (!ownerUsername) return res.status(400).json({ error: 'Bot sem owner associado' });
 
-    // 1) Guard central (bloqueio + botsEnabled)
     const check = await canUserAutoRespond(ownerUsername);
     if (!check.allow) {
       return res.status(423).json({
@@ -65,16 +121,13 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       });
     }
 
-    // 2) Fluxo normal de geração de resposta
+    // Products
     const productDocs: IProduct[] = Array.isArray(bot.product)
       ? (bot.product as IProduct[])
       : ([bot.product] as IProduct[]);
-
     const productIds = productDocs.map((p) => p._id);
-    const allProductNames = productDocs.map((p) => p.name);
-
     const allProductsRaw = await Product.find({ _id: { $in: productIds } }).lean();
-    const allProducts: LLMProduct[] = allProductsRaw.map((p: any) => ({
+    const allProductsFromProduct: LLMProduct[] = allProductsRaw.map((p: any) => ({
       id: p.id_external || String(p._id),
       category: p.category || 'outros',
       name: p.name,
@@ -90,30 +143,47 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       recommended_alcoholic: p.recommended_alcoholic ?? null,
       recommended_non_alcoholic: p.recommended_non_alcoholic ?? null,
       notes: p.notes ?? null,
-      isTakeaway: !!p.isTakeaway,
-      takeawayLink: p.takeawayLink ?? undefined,
       imageUrl: p.imageUrl ?? undefined,
     }));
 
-    const textQuery = buildTextSearchQuery(userMessage);
-    let relevantRaw = await Product.find({
-      _id: { $in: productIds },
-      ...(textQuery ? { $text: { $search: textQuery } } : {}),
-    })
-      .limit(5)
-      .lean();
+    // CatalogItems (aceita populado ou ids)
+    const catalogItemsArr = Array.isArray((bot as any).catalogItems) ? (bot as any).catalogItems : [];
+    const catalogItemIds = catalogItemsArr.map((ci: any) => (typeof ci === 'string' ? ci : ci?._id)).filter(Boolean);
+    let catalogItemsRaw: any[] = [];
+    if (catalogItemsArr.some((ci: any) => typeof ci === 'string')) {
+      catalogItemsRaw = await CatalogItem.find({ _id: { $in: catalogItemIds } }).lean();
+    } else {
+      catalogItemsRaw = catalogItemsArr as any[];
+    }
+    const allProductsFromCatalog: LLMProduct[] = catalogItemsRaw.map(catalogItemToLLMProduct);
 
-    if (!relevantRaw.length) {
-      relevantRaw = allProductsRaw
-        .map((p: any) => ({
-          ...p,
-          __score: fallbackScore(userMessage, p.name, p.description),
-        }))
+    // MERGE
+    const allProducts: LLMProduct[] = [...allProductsFromProduct, ...allProductsFromCatalog];
+    const allProductNames = allProducts.map((p) => p.name);
+
+    // 🔎 DEBUG
+    console.log('[BOTMSG] total products:', allProductsFromProduct.length);
+    console.log('[BOTMSG] total catalog items:', allProductsFromCatalog.length);
+    console.log('[BOTMSG] merged allProducts:', allProducts.length);
+
+    // Relevantes (Products via $text + Catálogo via score)
+    const textQuery = buildTextSearchQuery(userMessage);
+    let relevantFromProducts: any[] = [];
+    if (textQuery) {
+      relevantFromProducts = await Product.find({
+        _id: { $in: productIds },
+        $text: { $search: textQuery },
+      })
+        .limit(5)
+        .lean();
+    }
+    if (!relevantFromProducts.length) {
+      relevantFromProducts = allProductsRaw
+        .map((p: any) => ({ ...p, __score: fallbackScore(userMessage, p.name, p.description) }))
         .sort((a, b) => b.__score - a.__score)
         .slice(0, 5);
     }
-
-    const adapterProducts: LLMProduct[] = relevantRaw.map((p: any) => ({
+    const mappedRelevantFromProducts: LLMProduct[] = relevantFromProducts.map((p: any) => ({
       id: p.id_external || String(p._id),
       category: p.category || 'outros',
       name: p.name,
@@ -131,6 +201,17 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       notes: p.notes ?? null,
       imageUrl: p.imageUrl ?? undefined,
     }));
+
+    const rankedCatalog = allProductsFromCatalog
+      .map((ci) => ({ ci, __score: fallbackScore(userMessage, ci.name, ci.description) }))
+      .sort((a, b) => b.__score - a.__score)
+      .map((x) => x.ci);
+
+    // Se pouco relevante dos products, completa com catálogo
+    const adapterProducts: LLMProduct[] = [...mappedRelevantFromProducts, ...rankedCatalog].slice(0, 5);
+
+    // 🔎 DEBUG
+    console.log('[BOTMSG] adapterProducts (names):', adapterProducts.map((p) => p.name));
 
     const companyData: CompanyData = {
       name: (bot as any).companyName ?? 'Empresa Genérica',
@@ -143,10 +224,7 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
     if (roomId) {
       const lastMsgs = await Message.find({ roomId }).sort({ timestamp: -1 }).limit(1).lean();
       lastMsgs.reverse().forEach((m) =>
-        chatHistory.push({
-          role: m.sender === 'Bot' ? 'assistant' : 'user',
-          content: m.message || '',
-        })
+        chatHistory.push({ role: m.sender === 'Bot' ? 'assistant' : 'user', content: m.message || '' })
       );
     }
 
@@ -154,10 +232,7 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
     if (clientId) {
       const mem = await ClientMemory.findOne({ clientId }).lean();
       if (mem) {
-        memoryCtx = {
-          topics: mem.topicsAgg ?? [],
-          sentiment: mem.sentimentAgg ?? 'neutral',
-        };
+        memoryCtx = { topics: mem.topicsAgg ?? [], sentiment: mem.sentimentAgg ?? 'neutral' };
       }
     }
 
@@ -165,7 +240,6 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       const langGuess = detectLang(userMessage);
       type LangKey = 'pt' | 'es' | 'en' | 'it' | 'fr' | 'ar';
       const top3 = allProductNames.slice(0, 3);
-
       const msgByLang: Record<LangKey, string> = {
         pt: `Não temos esse item. Disponíveis: ${top3.join(', ')}.`,
         es: `No tenemos ese ítem. Disponibles: ${top3.join(', ')}.`,
@@ -174,10 +248,14 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
         fr: `Nous n'avons pas cet article. Disponibles : ${top3.join(', ')}.`,
         ar: `هذا الصنف غير متوفر. المتاح: ${top3.join(', ')}.`,
       };
-
-      const out = msgByLang[(langGuess ?? 'pt') as LangKey];
-      return res.status(200).json({ message: out });
+      return res.status(200).json({ message: msgByLang[(langGuess ?? 'pt') as LangKey] });
     }
+
+    // 🔎 DEBUG — O QUE ESTAMOS ENVIANDO AO OPENAI
+    console.log('[BOTMSG] calling OpenAI with:', {
+      adapterProducts: adapterProducts.map((p) => ({ id: p.id, name: p.name })),
+      allProductsCount: allProducts.length,
+    });
 
     const botResponse = await generateBotResponse(
       (bot as any).name ?? 'Enki',
@@ -191,10 +269,7 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
       memoryCtx,
       { preferredLanguage, userInputLanguage: detectLang(userMessage) },
       allProductNames,
-      {
-        about: (bot as any).about,
-        guidelines: (bot as any).guidelines,
-      }
+      { about: (bot as any).about, guidelines: (bot as any).guidelines }
     );
 
     return res.status(200).json({ message: botResponse });
@@ -205,3 +280,6 @@ router.post('/bot/:botId/message', async (req: Request, res: Response) => {
 });
 
 export { router };
+
+
+
