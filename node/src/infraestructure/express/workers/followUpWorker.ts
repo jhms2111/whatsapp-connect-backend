@@ -27,7 +27,7 @@ export function startFollowUpWorker(io: IOServer, intervalMs = 30_000) {
   async function tick() {
     try {
       const now = new Date();
-      console.log('[followUpWorker] tick @', now.toISOString());
+    //  console.log('[followUpWorker] tick @', now.toISOString());
 
       const due = await FollowUpSchedule.find({
         sent: false,
@@ -38,7 +38,7 @@ export function startFollowUpWorker(io: IOServer, intervalMs = 30_000) {
         .lean<FollowDoc[]>()
         .exec();
 
-      console.log(`[followUpWorker] encontrados ${due.length} itens vencidos`);
+    //  console.log(`[followUpWorker] encontrados ${due.length} itens vencidos`);
 
       if (!due.length) return;
 

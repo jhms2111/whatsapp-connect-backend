@@ -66,7 +66,7 @@ router.post('/webchat/visitor/request-code', rateLimitMs(5000), async (req: Requ
     ).exec();
 
     // Envia SMS
-    await sendSmsE164(phoneE164, `Seu código de verificação: ${code}`);
+    await sendSmsE164(phoneE164, `Seu código de verificação para entrar no chat ENKI é: ${code}`);
 
     return res.json({ ok: true });
   } catch (e) {

@@ -40,7 +40,7 @@ router.post('/webchat/checkout-session', async (req: Request, res: Response) => 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [{ price: pkg.priceId, quantity: 1 }],
-      success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sucesso?ch=webchat`,
+      success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=webchat`,
       cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages-webchat?cancel=1`,
       metadata: {
         username,
@@ -79,7 +79,7 @@ router.post('/billing/webchat/checkout', async (req: Request, res: Response) => 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [{ price: pkg.priceId, quantity: 1 }],
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sucesso?ch=webchat`,
+      success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=webchat`,
       cancel_url:  `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages-webchat?cancel=1`,
       metadata: {
         username: u.username,

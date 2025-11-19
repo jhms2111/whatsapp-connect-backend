@@ -24,7 +24,7 @@ router.post('/billing/checkout', authenticateJWT, async (req: Request, res: Resp
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       metadata: { numberRequestId: nr.id },
-      success_url: `${process.env.FRONTEND_URL}/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/erro`,
     });
 

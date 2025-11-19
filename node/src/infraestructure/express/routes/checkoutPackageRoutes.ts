@@ -86,7 +86,7 @@ router.post('/checkout-package', async (req: Request, res: Response) => {
       ],
       success_url:
         successUrl ||
-        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sucesso?ch=${channel}`,
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=${channel}`,
       cancel_url:
         cancelUrl ||
         `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages`,

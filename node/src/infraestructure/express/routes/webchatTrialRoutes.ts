@@ -24,9 +24,31 @@ async function sendSmsE164(toE164: string, body: string) {
     console.warn('[WEBCHAT TRIAL] Twilio não configurado. Log-only:', toE164, body);
     return;
   }
-  if (!twilioFrom) throw new Error('TWILIO_FROM_NUMBER não configurado (SMS-capable).');
-  await twilioClient.messages.create({ to: toE164, from: twilioFrom, body });
+
+  // Novo: lê o Sender ID e o número
+  const senderId = process.env.TWILIO_SENDER_ID || '';   // Ex.: "ENKI"
+  const fromNumber = twilioFrom || '';                   // Seu número US
+
+  // Prioridade:
+  // 1) Se existir senderId → usa nome
+  // 2) Senão usa o número
+  const from = senderId || fromNumber;
+
+  if (!from) {
+    throw new Error(
+      'Nenhum remetente configurado. Defina TWILIO_SENDER_ID ou TWILIO_FROM_NUMBER.'
+    );
+  }
+
+  console.log('[WEBCHAT TRIAL] SMS FROM =', from, 'TO =', toE164);
+
+  await twilioClient.messages.create({
+    to: toE164,
+    from,
+    body,
+  });
 }
+
 
 /** ========== Utils ========== */
 function normalizePhoneToE164(input: string): string {
@@ -165,8 +187,8 @@ async function handleRequestCode(req: Request, res: Response) {
     };
     codesStore.set(keyFor(u.username, phoneE164), rec);
 
-    console.log(`[WEBCHAT TRIAL][SMS] Enviando para ${phoneE164}: Seu código de verificação: ${code}`);
-    await sendSmsE164(phoneE164, `Seu código de verificação: ${code}`);
+    console.log(`[WEBCHAT TRIAL][SMS] Enviando para ${phoneE164}: Seu código de verificação para ativar 100 conversas ENKI é: ${code}`);
+    await sendSmsE164(phoneE164, `Seu código de verificação para ativar as 100 conversas é: ${code}`);
 
     return res.json({ ok: true });
   } catch (e: any) {
