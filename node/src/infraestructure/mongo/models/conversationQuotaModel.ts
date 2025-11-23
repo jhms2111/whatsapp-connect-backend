@@ -18,7 +18,13 @@ export interface IConversationQuota extends Document {
 
   createdAt: Date;
   updatedAt: Date;
+
+
+    // 👇 ADICIONAR (compat legada)
+  usedConversations?: number;
+  creditEuros?: number;
 }
+
 
 const ConversationQuotaSchema = new Schema<IConversationQuota>({
   username: { type: String, unique: true, index: true, required: true },
@@ -36,6 +42,11 @@ const ConversationQuotaSchema = new Schema<IConversationQuota>({
 
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() },
+
+  
+    // 👇 ADICIONAR: campos legados para parar de quebrar o TS
+  usedConversations: { type: Number, default: 0 },
+  creditEuros: { type: Number, default: 0 },
 });
 
 ConversationQuotaSchema.pre('save', function (next) {

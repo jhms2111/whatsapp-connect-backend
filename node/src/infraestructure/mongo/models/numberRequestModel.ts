@@ -23,7 +23,10 @@ export interface INumberRequest extends Document {
 
   // Controle de brinde para evitar duplicidade
   freeTrialGrantedAt?: Date | null;
+
+    adminNotes?: string | null;
 }
+
 
 const NumberRequestSchema = new Schema<INumberRequest>(
   {
@@ -46,8 +49,19 @@ const NumberRequestSchema = new Schema<INumberRequest>(
     checkoutSessionId: { type: String, default: null },
 
     freeTrialGrantedAt: { type: Date, default: null },
+
+    // 👇 ADICIONAR:
+    adminNotes: { type: String, default: null },
   },
+
+  
   { timestamps: true }
+
+  
+
+  
 );
+
+
 
 export default mongoose.model<INumberRequest>('NumberRequest', NumberRequestSchema);
