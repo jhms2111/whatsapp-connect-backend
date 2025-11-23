@@ -21,8 +21,8 @@ export interface IConversationQuota extends Document {
 
 
     // 👇 ADICIONAR (compat legada)
-  usedConversations?: number;
-  creditEuros?: number;
+  usedConversations: number;
+  creditEuros: number;
 }
 
 
