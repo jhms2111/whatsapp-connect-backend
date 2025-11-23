@@ -2,15 +2,15 @@
     "name": "whatsapp-crm",
     "version": "1.0.0",
     "description": "CRM solution powered by WhatsApp integration.",
-    "main": "main.js",
+    "main": "dist/index.js",
     "author": "Apps Implantadores <development@appsimplantadores.com>",
     "license": "UNLICENSED",
     "type": "commonjs",
     "scripts": {
-        "dev": "nodemon ./src/main.ts",
+        "dev": "nodemon ./src/index.ts",
         "clean": "rm -rf ./dist",
         "build": "npm run clean && tsc",
-        "start": "node dist/main.js",
+        "start": "node dist/index.js",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "dependencies": {
