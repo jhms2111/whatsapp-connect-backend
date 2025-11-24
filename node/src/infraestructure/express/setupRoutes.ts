@@ -260,7 +260,7 @@ app.use(
 
   app.use('/api', catalogRoutes);
 
- // app.use('/api', catalogRouter);
+ ////// app.use('/api', catalogRouter);
 
 
   
