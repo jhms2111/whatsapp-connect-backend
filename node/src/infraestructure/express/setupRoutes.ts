@@ -197,32 +197,32 @@ app.use(
   });
 
   // 5) Rotas protegidas (todas as suas existentes)
-  app.use('/', messageRoutes);
-  app.use('/', chatMessageRoutes);
-  app.use('/', roomRoutes);
+  app.use('', messageRoutes);
+  app.use('', chatMessageRoutes);
+  app.use('', roomRoutes);
 
-  app.use('/', productRoutes);
-  app.use('/', productDeleteRoutes);
-  app.use('/', productEditRoutes);
+  app.use('', productRoutes);
+  app.use('', productDeleteRoutes);
+  app.use('', productEditRoutes);
 
-  app.use('/', botRoutes);
-  app.use('/', botDeleteRoutes);
-  app.use('/', botEditRoutes);
-  app.use('/', botInteractionRoutes);
+  app.use('', botRoutes);
+  app.use('', botDeleteRoutes);
+  app.use('', botEditRoutes);
+  app.use('', botInteractionRoutes);
 
-  app.use('/', sendWhatsapp);
-  app.use('/', twilioNumberRoutes);
+  app.use('', sendWhatsapp);
+  app.use('', twilioNumberRoutes);
 
-  app.use('/', numberRequestRoutes);
+  app.use('', numberRequestRoutes);
   app.use('/api/admin', adminNumberRoutes);
   app.use('/', billingRoutes);
 
-  app.use('/', conversationPackageRoutes);
-  app.use('/', paymentRoutesConversation);
-  app.use('/', checkoutPackageRoutes);
-  app.use('/', checkoutPackage);
+  app.use('', conversationPackageRoutes);
+  app.use('', paymentRoutesConversation);
+  app.use('', checkoutPackageRoutes);
+  app.use('', checkoutPackage);
 
-  app.use('/', numberAccessRequestRoutes);
+  app.use('', numberAccessRequestRoutes);
   app.use('/api/admin', adminNumberAccessRoutes);
 
   app.use('/api/admin', adminProductRoutes);
@@ -231,34 +231,34 @@ app.use(
   app.use('/api/admin', adminRoutes);
   app.use('/api/admin', adminUserRoutes);
 
-  app.use('/', historyRoutes);
-  app.use('/', sessionRoutes);
-  app.use('/', quotaRoutes);
-  app.use('/', conversationQuotaRoutes);
+  app.use('', historyRoutes);
+  app.use('', sessionRoutes);
+  app.use('', quotaRoutes);
+  app.use('', conversationQuotaRoutes);
 
-  app.use('/', meBotsRoutes);
-  app.use('/', botsGlobalRoutes);
+  app.use('', meBotsRoutes);
+  app.use('', botsGlobalRoutes);
 
-  app.use('/', meFollowUpRoutes);
-  app.use('/', qrCodeRoutes);
-  app.use('/', passwordRoutes);
+  app.use('', meFollowUpRoutes);
+  app.use('', qrCodeRoutes);
+  app.use('', passwordRoutes);
 
-  app.use('/', webchatPrivateRoutes);
+  app.use('', webchatPrivateRoutes);
 
   // (opcional) checkout do webchat
-  app.use('/', webchatCheckoutRoutes);
+  app.use('', webchatCheckoutRoutes);
 
-  app.use('/', billingCheckoutUnified);
+  app.use('', billingCheckoutUnified);
 
-  app.use('/', webchatHistoryRoutes);
-  app.use('/', webChatMessagesRoutes);
-  app.use('/', webchatTrialRoutes);
+  app.use('', webchatHistoryRoutes);
+  app.use('', webChatMessagesRoutes);
+  app.use('', webchatTrialRoutes);
 
-  app.use('/', webchatBotsGlobalStatusRoutes);
+  app.use('', webchatBotsGlobalStatusRoutes);
 
-  app.use('/', webchatPanelRoutes);
+  app.use('', webchatPanelRoutes);
 
-  app.use('/', catalogRoutes);
+  app.use('', catalogRoutes);
 
  // app.use('/api', catalogRouter);
 
