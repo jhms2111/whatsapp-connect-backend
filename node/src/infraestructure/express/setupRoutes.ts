@@ -130,17 +130,21 @@ async function dropLegacyFollowUpIndex() {
 export function setupRoutes(io: Server): Express {
   const app = express();
 
-  // socket no app
-  app.set('io', io);
+// CORS configurado para ambiente local + produção (Render + Vercel)
 
-  // CORS
-  app.use(
-    cors({
-      origin: 'http://localhost:3000',
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      credentials: true,
-    })
-  );
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+app.use(
+  cors({
+    origin: [
+      'http://localhost:3000',      // ambiente local
+      FRONTEND_URL,                 // URL da Vercel
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  })
+);
+
 
   // 1) Webhooks ANTES (raw se necessário no arquivo do webhook)
   app.use('/api', stripeWebhookConversation);
