@@ -13,16 +13,15 @@ interface SendEmailOptions {
 export async function sendEmail({ to, subject, text, html }: SendEmailOptions) {
   try {
     const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: 587,
-  secure: false, // STARTTLS
-  requireTLS: true,
-  auth: {
-    user: process.env.SMTP_USER!,
-    pass: process.env.SMTP_PASS!,
-  },
-});
-
+      host: process.env.SMTP_HOST,
+      port: 587,
+      secure: false, // STARTTLS
+      requireTLS: true,
+      auth: {
+        user: process.env.SMTP_USER!,
+        pass: process.env.SMTP_PASS!,
+      },
+    });
 
     const info = await transporter.sendMail({
       from: `"Enki" <${process.env.SMTP_USER}>`,
@@ -34,7 +33,8 @@ export async function sendEmail({ to, subject, text, html }: SendEmailOptions) {
 
     console.log(`✅ Email enviado para ${to}: ${info.messageId}`);
   } catch (err) {
-    console.error('❌ Erro ao enviar email:', err);
-    throw err;
+    console.error('❌ Erro ao enviar email (mas NÃO vou derrubar a requisição):', err);
+    // 👇 REMOVIDO: não jogar erro pra fora
+    // throw err;
   }
 }
