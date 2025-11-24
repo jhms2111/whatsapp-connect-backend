@@ -23,18 +23,20 @@ export async function sendEmail({ to, subject, text, html }: SendEmailOptions) {
       },
     });
 
+    const fromAddress = process.env.SMTP_FROM || `"Enki" <${process.env.SMTP_USER}>`;
+
     const info = await transporter.sendMail({
-      from: `"Enki" <${process.env.SMTP_USER}>`,
+      from: fromAddress,
       to,
       subject,
       text,
-      html, // HTML opcional
+      html,
     });
 
     console.log(`✅ Email enviado para ${to}: ${info.messageId}`);
   } catch (err) {
-    console.error('❌ Erro ao enviar email (mas NÃO vou derrubar a requisição):', err);
-    // 👇 REMOVIDO: não jogar erro pra fora
-    // throw err;
+    console.error('❌ Erro ao enviar email:', err);
+    throw err;
   }
 }
+
