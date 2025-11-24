@@ -1,11 +1,19 @@
 {
   "compilerOptions": {
-    "target": "es2016",     
-    "module": "commonjs",                                
-    "esModuleInterop": true, 
-    "forceConsistentCasingInFileNames": true,           
-    "strict": true,
+    "target": "es2016",
+    "module": "commonjs",
+
+    // ✅ adicionados:
+    "rootDir": "./src",
+    "outDir": "./dist",
     "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": false,
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
     "allowSyntheticDefaultImports": true,
     "typeRoots": [
       "./node_modules/@types",
@@ -17,5 +25,9 @@
     "src/types/**/*.d.ts",
     "src/infraestructure/express/routes/sendWhatsapp.ts",
     "src/infraestructure/express/routes/paymentRoutes.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
   ]
 }
