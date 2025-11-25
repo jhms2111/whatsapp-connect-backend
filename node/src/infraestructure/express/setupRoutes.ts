@@ -268,6 +268,15 @@ app.use(
 
 
   // 6) Estáticos / Twilio / Uploads
+
+
+  // 6) Estáticos / Twilio / Uploads
+app.set('trust proxy', true);
+
+// 🔴 AQUI: deixa o io disponível para as rotas
+app.set('io', io);
+
+
   app.set('trust proxy', true);
   setupStaticRoutes(app);
   setupTwilioRoutes(app, io);
