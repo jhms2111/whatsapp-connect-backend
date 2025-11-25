@@ -301,13 +301,17 @@ app.use(
     }
   });
 
-  io.attach(server, {
-    cors: {
-      origin: 'http://localhost:3000',
-      methods: ['GET', 'POST'],
-      credentials: true,
-    },
-  });
+io.attach(server, {
+  cors: {
+    origin: [
+      "http://localhost:3000",
+      "https://whatsapp-connect-two.vercel.app"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
 
   io.on('connection', (socket) => {
     handleSocketConnection(socket, io);
