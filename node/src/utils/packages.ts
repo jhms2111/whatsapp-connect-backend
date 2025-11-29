@@ -11,15 +11,15 @@ type BasePkg = {
 
 export const PACKAGES = {
   whatsapp: {
-    29: { priceEuros: 29, conversations: 200, priceId: 'price_1SDuVqHDM5RMdQdJ7u6ouxRj', mode: 'subscription' },
-    59: { priceEuros: 59, conversations: 500, priceId: 'price_1SDuY3HDM5RMdQdJG4cDy7jf', mode: 'subscription' },
-    99: { priceEuros: 99, conversations: 1250, priceId: 'price_1SDuZHHDM5RMdQdJY5vuIEmp', mode: 'subscription' },
+    29: { priceEuros: 0.50, conversations: 200, priceId: 'price_1SYe4THTEWXeEltkiANpOD6h', mode: 'subscription' },
+    59: { priceEuros: 0.50, conversations: 500, priceId: 'price_1SYe4THTEWXeEltkiANpOD6h', mode: 'subscription' },
+    99: { priceEuros: 0.50, conversations: 1250, priceId: 'price_1SYe4THTEWXeEltkiANpOD6h', mode: 'subscription' },
   } as const,
 
   webchat: {
-    19: { priceEuros: 19, conversations: 100, priceId: 'price_1SMkWqHDM5RMdQdJPSrOlBYu', mode: 'subscription' },
-    39: { priceEuros: 59, conversations: 300, priceId: 'price_1SDuY3HDM5RMdQdJG4cDy7jf', mode: 'subscription' },
-    79: { priceEuros: 99, conversations: 900, priceId: 'price_1SDuZHHDM5RMdQdJY5vuIEmp', mode: 'subscription' },
+     9: { priceEuros: 0.50, conversations: 100, priceId: 'price_1SYe4THTEWXeEltkiANpOD6h', mode: 'subscription' },
+    39: { priceEuros: 0.50, conversations: 300, priceId: 'price_1SYe4THTEWXeEltkiANpOD6h', mode: 'subscription' },
+    79: { priceEuros: 0.50, conversations: 900, priceId: 'price_1SYe4THTEWXeEltkiANpOD6h', mode: 'subscription' },
   } as const,
 } as const;
 
