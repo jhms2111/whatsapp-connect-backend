@@ -32,7 +32,7 @@ export const PACKAGES = {
   } as const,
 
   webchat: {
-    // Plano 9 — permanece igual
+    // Plano 9 — ainda usando price antigo
     9: {
       priceEuros: 0.50,
       conversations: 100,
@@ -40,15 +40,15 @@ export const PACKAGES = {
       mode: 'subscription',
     },
 
-    // Plano 39 — TESTE (0.55)
+    // Plano 39 — TESTE com price de €0,55
     39: {
-      priceEuros: 0.55, // 👈 TESTE — valor lógico
+      priceEuros: 0.55,
       conversations: 300,
-      priceId: 'price_1SZlPlHTEWXeEltk17NAmKGs', // 👈 TESTE — *o seu priceId real*
+      priceId: 'price_1SZlPlHTEWXeEltk17NAmKGs', // 👈 seu priceId de 0,55
       mode: 'subscription',
     },
 
-    // Plano 79 — permanece igual
+    // Plano 79 — ainda usando price antigo
     79: {
       priceEuros: 0.50,
       conversations: 900,

@@ -2,7 +2,7 @@
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import WebchatQuota from '../../mongo/models/webchatQuotaModel';
-import { getPackage } from '../../../utils/packages'; // 👈 usar helper
+import { getPackage } from '../../../utils/packages';
 
 const router = express.Router();
 
@@ -16,7 +16,6 @@ router.post('/billing/webchat/cancel', express.json(), async (req: Request, res:
       return res.status(500).json({ error: 'Stripe não configurado.' });
     }
 
-    // ideal: pegar username do token do usuário logado
     const { username } = req.body;
     if (!username) {
       return res.status(400).json({ error: 'username é obrigatório.' });
@@ -74,7 +73,6 @@ router.post('/billing/webchat/change-plan', express.json(), async (req: Request,
       return res.status(400).json({ error: 'newPackageType inválido.' });
     }
 
-    // 👇 usa helper getPackage em vez de PACKAGES.webchat[...]
     const pkg = getPackage('webchat', pkgNumber);
     if (!pkg) {
       return res.status(400).json({ error: 'Pacote inválido.' });
@@ -98,8 +96,7 @@ router.post('/billing/webchat/change-plan', express.json(), async (req: Request,
           price: pkg.priceId,
         },
       ],
-      // Stripe calcula proporcionalmente diferença de valor
-      proration_behavior: 'create_prorations',
+      proration_behavior: 'create_prorations', // Stripe calcula diferença proporcional
     });
 
     // 3) Atualiza info no Mongo

@@ -8,7 +8,7 @@ export interface IWebchatQuota extends Document {
   packageType: number | null;   // 9/39/79... conforme pacotes WebChat
   lastStripeCheckoutId: string | null;
 
-  // 👇 NOVO: id da assinatura no Stripe (sub_...)
+  // id da assinatura no Stripe (sub_...)
   stripeSubscriptionId?: string | null;
 
   coins?: number;               // opcional, se quiser “moeda” de WebChat
@@ -29,7 +29,6 @@ const WebchatQuotaSchema = new Schema<IWebchatQuota>({
   packageType: { type: Number, default: null },
   lastStripeCheckoutId: { type: String, default: null },
 
-  // 👇 NOVO CAMPO
   stripeSubscriptionId: { type: String, default: null },
 
   coins: { type: Number, default: 0 },
