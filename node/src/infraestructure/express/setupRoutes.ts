@@ -269,7 +269,7 @@ app.use(
  ////// app.use('/api', catalogRouter);
 
  
-  app.use(webchatSubscriptionRouter);
+  app.use('/api', webchatSubscriptionRouter);
 
   app.use('/api', webchatSubscriptionStatusRouter);
 
