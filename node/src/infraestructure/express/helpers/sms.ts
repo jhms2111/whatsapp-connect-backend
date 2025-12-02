@@ -12,15 +12,23 @@ if (SID && TOKEN) {
 
 export async function sendSmsE164(toE164: string, body: string) {
   if (!client) {
-    throw new Error('Twilio client não configurado.');
+    throw new Error('Twilio client not configured.');
   }
 
-  // Prioriza o Sender ID (nome). Se não tiver, usa o número.
-  const from = SENDER_ID || FROM;
+  let from: string;
+
+  // 🇧🇷 Brazil MUST use the Twilio number (no alphanumeric Sender ID)
+  if (toE164.startsWith('+55')) {
+    from = FROM; // number like +1415xxxx etc.
+  } else {
+    // Other countries can use alphanumeric if available
+    from = SENDER_ID || FROM;
+  }
 
   if (!from) {
-    throw new Error('Nenhum remetente configurado. Defina TWILIO_SENDER_ID ou TWILIO_FROM_NUMBER.');
+    throw new Error('No sender configured.');
   }
 
-  await client.messages.create({ from, to: toE164, body });
+  return await client.messages.create({ from, to: toE164, body });
 }
+
