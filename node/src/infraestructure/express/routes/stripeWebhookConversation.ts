@@ -1,4 +1,3 @@
-// src/infraestructure/express/routes/stripeWebhookConversation.ts
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
@@ -114,10 +113,11 @@ async function creditWhatsapp(
 async function creditWebchat(
   username: string,
   conversationsToAdd: number,
-  purchaseId?: string | null
+  purchaseId?: string | null,
+  subscriptionId?: string | null       // 👈 NOVO PARAM
 ) {
   const now = new Date();
-  const doc = await WebchatQuota.findOne({ username }).lean().exec();
+  const doc = await WebchatQuota.findOne({ username }).exec();
 
   if (!doc || isExpired((doc as any).periodEnd)) {
     await WebchatQuota.findOneAndUpdate(
@@ -131,6 +131,7 @@ async function creditWebchat(
           periodStart: now,
           periodEnd: addPeriod(now),
           lastStripeCheckoutId: purchaseId ?? null,
+          stripeSubscriptionId: subscriptionId ?? null, // 👈 SALVA
         },
       },
       { new: true, upsert: true }
@@ -138,26 +139,22 @@ async function creditWebchat(
     return;
   }
 
-  await WebchatQuota.updateOne(
-    { username },
-    {
-      $inc: { totalConversations: conversationsToAdd },
-      $set: {
-        updatedAt: now,
-        periodStart: now,
-        periodEnd: addPeriod(now),
-        lastStripeCheckoutId:
-          purchaseId ?? (doc as any).lastStripeCheckoutId ?? null,
-      },
-    }
-  ).exec();
+  // doc existe e período ainda ativo
+  doc.totalConversations = (doc.totalConversations || 0) + conversationsToAdd;
+  doc.updatedAt = now;
+  doc.periodStart = now;
+  doc.periodEnd = addPeriod(now);
+  doc.lastStripeCheckoutId = purchaseId ?? doc.lastStripeCheckoutId ?? null;
+  doc.stripeSubscriptionId = subscriptionId ?? doc.stripeSubscriptionId ?? null; // 👈 ATUALIZA
+  await doc.save();
 }
 
 async function creditPackageByChannel(
   channel: Channel,
   username: string,
   packageType: number,
-  purchaseId?: string | null
+  purchaseId?: string | null,
+  subscriptionId?: string | null     // 👈 NOVO PARAM
 ) {
   // Busca o pacote no arquivo unificado
   const pkg = getPackage(channel, packageType);
@@ -181,7 +178,7 @@ async function creditPackageByChannel(
   if (channel === 'whatsapp') {
     await creditWhatsapp(username, conversationsToAdd, purchaseId || null);
   } else if (channel === 'webchat') {
-    await creditWebchat(username, conversationsToAdd, purchaseId || null);
+    await creditWebchat(username, conversationsToAdd, purchaseId || null, subscriptionId || null);
   }
 }
 
@@ -245,6 +242,11 @@ billingRouter.post(
           const { channel, username, packageType } = getMeta(session);
           const purchaseId = normalizePurchaseIdFromSession(session);
 
+          const subscriptionId =
+            typeof session.subscription === 'string'
+              ? session.subscription
+              : (session.subscription as any)?.id || null;
+
           if (!channel || !username || !packageType) {
             console.warn(
               '❌ Metadata/pacote inválido (checkout.session.completed):',
@@ -261,7 +263,8 @@ billingRouter.post(
             channel,
             username,
             packageType,
-            purchaseId
+            purchaseId,
+            subscriptionId
           );
           break;
         }
@@ -280,13 +283,13 @@ billingRouter.post(
           username = metaInvoice.username;
           packageType = metaInvoice.packageType;
 
+          let subId: string | undefined =
+            (typeof invoiceAny.subscription === 'string'
+              ? invoiceAny.subscription
+              : invoiceAny.subscription?.id) ?? undefined;
+
           // Se vieram vazios, tenta via subscription
           if (!channel || !username || !packageType) {
-            const subId: string | undefined =
-              (typeof invoiceAny.subscription === 'string'
-                ? invoiceAny.subscription
-                : invoiceAny.subscription?.id) ?? undefined;
-
             if (subId) {
               try {
                 const subscription = await stripe.subscriptions.retrieve(subId);
@@ -313,7 +316,8 @@ billingRouter.post(
             channel,
             username,
             packageType,
-            purchaseId
+            purchaseId,
+            subId || null
           );
           break;
         }

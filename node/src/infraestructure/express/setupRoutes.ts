@@ -99,6 +99,10 @@ import webchatPanelRoutes from './routes/webchatPanelRoutes';
 
 import catalogRoutes from './routes/catalogRoutes'
 
+import webchatSubscriptionRouter from './routes/webchatSubscription';
+
+
+
 import catalogRouter from './routes/catalogRouter'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
@@ -261,6 +265,9 @@ app.use(
   app.use('/api', catalogRoutes);
 
  ////// app.use('/api', catalogRouter);
+
+ 
+app.use(webchatSubscriptionRouter);
 
 
   

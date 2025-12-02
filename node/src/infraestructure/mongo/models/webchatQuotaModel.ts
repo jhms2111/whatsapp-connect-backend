@@ -1,4 +1,3 @@
-// src/infraestructure/mongo/models/webchatQuotaModel.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IWebchatQuota extends Document {
@@ -6,8 +5,11 @@ export interface IWebchatQuota extends Document {
 
   totalConversations: number;   // alocadas para o período atual (WebChat)
   usedCharacters: number;       // usados no período atual (WebChat)
-  packageType: number | null;   // 19/39/79... conforme pacotes WebChat
+  packageType: number | null;   // 9/39/79... conforme pacotes WebChat
   lastStripeCheckoutId: string | null;
+
+  // 👇 NOVO: id da assinatura no Stripe (sub_...)
+  stripeSubscriptionId?: string | null;
 
   coins?: number;               // opcional, se quiser “moeda” de WebChat
   coinsExpiresAt?: Date | null;
@@ -26,6 +28,9 @@ const WebchatQuotaSchema = new Schema<IWebchatQuota>({
   usedCharacters: { type: Number, default: 0 },
   packageType: { type: Number, default: null },
   lastStripeCheckoutId: { type: String, default: null },
+
+  // 👇 NOVO CAMPO
+  stripeSubscriptionId: { type: String, default: null },
 
   coins: { type: Number, default: 0 },
   coinsExpiresAt: { type: Date, default: null },
