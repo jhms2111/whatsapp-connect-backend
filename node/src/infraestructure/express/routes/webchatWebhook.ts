@@ -1,3 +1,4 @@
+// webchatWebhook.ts
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import WebchatQuota, { IWebchatQuota } from '../../mongo/models/webchatQuotaModel';
@@ -55,8 +56,7 @@ async function activateWebchatPackage(
   username: string | undefined | null,
   packageTypeStr: string | undefined | null,
   source: string,
-  purchaseId?: string | null,
-  subscriptionId?: string | null     // 👈 NOVO PARAM
+  purchaseId?: string | null
 ) {
   const u = username?.trim();
   const pNum = Number(packageTypeStr) as keyof typeof WEBCHAT_PACKAGES;
@@ -90,7 +90,6 @@ async function activateWebchatPackage(
           totalConversations: pacote.conversations,
           usedCharacters: 0,
           lastStripeCheckoutId: purchaseId ?? null,
-          stripeSubscriptionId: subscriptionId ?? null, // 👈 SALVA ID DA ASSINATURA
           coins: pacote.conversations,
           coinsExpiresAt: newEnd,
           periodStart: newStart,
@@ -112,7 +111,6 @@ async function activateWebchatPackage(
       coins: quota?.coins,
       coinsExpiresAt: quota?.coinsExpiresAt,
       lastStripeCheckoutId: quota?.lastStripeCheckoutId,
-      stripeSubscriptionId: quota?.stripeSubscriptionId,
     });
     return;
   }
@@ -125,7 +123,6 @@ async function activateWebchatPackage(
   current.coinsExpiresAt = newEnd;
   current.packageType = Number(pNum);
   current.lastStripeCheckoutId = purchaseId ?? current.lastStripeCheckoutId ?? null;
-  current.stripeSubscriptionId = subscriptionId ?? current.stripeSubscriptionId ?? null; // 👈 ATUALIZA
   current.updatedAt = new Date();
   await current.save();
 
@@ -142,7 +139,6 @@ async function activateWebchatPackage(
     coins: current.coins,
     coinsExpiresAt: current.coinsExpiresAt,
     lastStripeCheckoutId: current.lastStripeCheckoutId,
-    stripeSubscriptionId: current.stripeSubscriptionId,
   });
 }
 
@@ -181,19 +177,7 @@ router.post(
           const session = event.data.object as Stripe.Checkout.Session;
           const md = session.metadata || {};
           const normalizedId = normalizePurchaseIdFromSession(session);
-
-          const subscriptionId =
-            typeof session.subscription === 'string'
-              ? session.subscription
-              : (session.subscription as any)?.id || null;
-
-          await activateWebchatPackage(
-            md.username as any,
-            md.packageType as any,
-            'checkout.session.completed',
-            normalizedId,
-            subscriptionId
-          );
+          await activateWebchatPackage(md.username as any, md.packageType as any, 'checkout.session.completed', normalizedId);
           break;
         }
 
@@ -223,13 +207,7 @@ router.post(
           }
 
           const normalizedId = normalizePurchaseIdFromInvoice(invoiceAny);
-          await activateWebchatPackage(
-            md.username as any,
-            md.packageType as any,
-            `${event.type}->normalized`,
-            normalizedId,
-            subId || null
-          );
+          await activateWebchatPackage(md.username as any, md.packageType as any, `${event.type}->normalized`, normalizedId);
           break;
         }
 

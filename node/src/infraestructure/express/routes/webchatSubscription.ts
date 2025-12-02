@@ -5,22 +5,24 @@ import { getPackage } from '../../../utils/packages';
 
 const router = express.Router();
 
-const STRIPE_SECRET_KEY_WEBCHAT = process.env.STRIPE_SECRET_KEY_WEBCHAT || '';
-const stripe = STRIPE_SECRET_KEY_WEBCHAT ? new Stripe(STRIPE_SECRET_KEY_WEBCHAT) : null;
+// (opcional) fixe a apiVersion se quiser
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  // apiVersion: '2023-10-16',
+});
+
+// Se usar webhooks neste arquivo, já fica declarado aqui também
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
 // POST /api/billing/webchat/cancel
 router.post('/billing/webchat/cancel', express.json(), async (req: Request, res: Response) => {
   try {
-    if (!stripe) {
-      return res.status(500).json({ error: 'Stripe não configurado.' });
-    }
-
     const { username } = req.body;
+
     if (!username) {
       return res.status(400).json({ error: 'username é obrigatório.' });
     }
 
-    // 👇 tipamos explicitamente o retorno como IWebchatQuota | null
+    // tipamos explicitamente o retorno como IWebchatQuota | null
     const quota = (await WebchatQuota.findOne({ username }).exec()) as IWebchatQuota | null;
 
     if (!quota || !quota.stripeSubscriptionId) {
@@ -52,10 +54,6 @@ router.post('/billing/webchat/cancel', express.json(), async (req: Request, res:
 // POST /api/billing/webchat/change-plan
 router.post('/billing/webchat/change-plan', express.json(), async (req: Request, res: Response) => {
   try {
-    if (!stripe) {
-      return res.status(500).json({ error: 'Stripe não configurado.' });
-    }
-
     const { username, newPackageType } = req.body;
 
     if (!username || newPackageType == null) {
