@@ -1,7 +1,6 @@
-// src/infraestructure/express/routes/webchatSubscription.ts
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
-import WebchatQuota from '../../mongo/models/webchatQuotaModel';
+import WebchatQuota, { IWebchatQuota } from '../../mongo/models/webchatQuotaModel';
 import { getPackage } from '../../../utils/packages';
 
 const router = express.Router();
@@ -9,7 +8,7 @@ const router = express.Router();
 const STRIPE_SECRET_KEY_WEBCHAT = process.env.STRIPE_SECRET_KEY_WEBCHAT || '';
 const stripe = STRIPE_SECRET_KEY_WEBCHAT ? new Stripe(STRIPE_SECRET_KEY_WEBCHAT) : null;
 
-// POST /billing/webchat/cancel
+// POST /api/billing/webchat/cancel
 router.post('/billing/webchat/cancel', express.json(), async (req: Request, res: Response) => {
   try {
     if (!stripe) {
@@ -21,7 +20,9 @@ router.post('/billing/webchat/cancel', express.json(), async (req: Request, res:
       return res.status(400).json({ error: 'username é obrigatório.' });
     }
 
-    const quota = await WebchatQuota.findOne({ username }).exec();
+    // 👇 tipamos explicitamente o retorno como IWebchatQuota | null
+    const quota = (await WebchatQuota.findOne({ username }).exec()) as IWebchatQuota | null;
+
     if (!quota || !quota.stripeSubscriptionId) {
       return res.status(404).json({ error: 'Assinatura não encontrada para este usuário.' });
     }
@@ -48,7 +49,7 @@ router.post('/billing/webchat/cancel', express.json(), async (req: Request, res:
   }
 });
 
-// POST /billing/webchat/change-plan
+// POST /api/billing/webchat/change-plan
 router.post('/billing/webchat/change-plan', express.json(), async (req: Request, res: Response) => {
   try {
     if (!stripe) {
@@ -63,7 +64,8 @@ router.post('/billing/webchat/change-plan', express.json(), async (req: Request,
         .json({ error: 'username e newPackageType são obrigatórios.' });
     }
 
-    const quota = await WebchatQuota.findOne({ username }).exec();
+    const quota = (await WebchatQuota.findOne({ username }).exec()) as IWebchatQuota | null;
+
     if (!quota || !quota.stripeSubscriptionId) {
       return res.status(404).json({ error: 'Assinatura não encontrada para este usuário.' });
     }

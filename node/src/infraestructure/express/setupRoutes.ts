@@ -101,6 +101,8 @@ import catalogRoutes from './routes/catalogRoutes'
 
 import webchatSubscriptionRouter from './routes/webchatSubscription';
 
+import webchatSubscriptionStatusRouter from './routes/webchatSubscriptionStatus';
+
 
 
 import catalogRouter from './routes/catalogRouter'
@@ -267,7 +269,9 @@ app.use(
  ////// app.use('/api', catalogRouter);
 
  
-app.use(webchatSubscriptionRouter);
+  app.use(webchatSubscriptionRouter);
+
+  app.use('/api', webchatSubscriptionStatusRouter);
 
 
   
