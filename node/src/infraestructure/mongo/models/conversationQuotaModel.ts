@@ -1,3 +1,4 @@
+// src/infraestructure/mongo/models/conversationQuotaModel.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IConversationQuota extends Document {
@@ -8,20 +9,20 @@ export interface IConversationQuota extends Document {
   packageType: number | null;
   lastStripeCheckoutId: string | null;
 
-  // id da assinatura Stripe para WhatsApp (sub_...)
+  // 🔹 NOVO: id da assinatura Stripe para WhatsApp
   stripeSubscriptionId?: string | null;
 
   coins?: number;              // moeda Enki
   coinsExpiresAt?: Date | null;
 
-  // validade do período (ex: 30 dias)
+  // >>> CAMPOS DE VALIDADE DO PERÍODO (30 dias) <<<
   periodStart?: Date | null;
   periodEnd?: Date | null;
 
   createdAt: Date;
   updatedAt: Date;
 
-  // campos legados
+  // 👇 ADICIONAR (compat legada)
   usedConversations: number;
   creditEuros: number;
 }
@@ -34,7 +35,7 @@ const ConversationQuotaSchema = new Schema<IConversationQuota>({
   packageType: { type: Number, default: null },
   lastStripeCheckoutId: { type: String, default: null },
 
-  // vincula à assinatura Stripe (WhatsApp)
+  // 🔹 NOVO: campo no Mongo para vincular à assinatura Stripe (WhatsApp)
   stripeSubscriptionId: { type: String, default: null },
 
   coins: { type: Number, default: 0 },
@@ -46,17 +47,19 @@ const ConversationQuotaSchema = new Schema<IConversationQuota>({
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() },
 
-  // compat/legado
+  // 👇 ADICIONAR: campos legados para parar de quebrar o TS
   usedConversations: { type: Number, default: 0 },
   creditEuros: { type: Number, default: 0 },
 });
 
 ConversationQuotaSchema.pre('save', function (next) {
-  (this as any).updatedAt = new Date();
+  this.updatedAt = new Date();
   next();
 });
 
-const ConversationQuota = mongoose.models.ConversationQuota
-  || mongoose.model<IConversationQuota>('ConversationQuota', ConversationQuotaSchema);
+const ConversationQuota = mongoose.model<IConversationQuota>(
+  'ConversationQuota',
+  ConversationQuotaSchema
+);
 
 export default ConversationQuota;
