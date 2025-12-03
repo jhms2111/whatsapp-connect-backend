@@ -1,3 +1,5 @@
+//billingRoutes
+
 import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { authenticateJWT } from '../middleware/authMiddleware';

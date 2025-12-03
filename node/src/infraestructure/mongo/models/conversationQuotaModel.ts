@@ -1,4 +1,3 @@
-// src/infraestructure/mongo/models/conversationQuotaModel.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IConversationQuota extends Document {
@@ -9,7 +8,7 @@ export interface IConversationQuota extends Document {
   packageType: number | null;
   lastStripeCheckoutId: string | null;
 
-  // 🔹 NOVO: id da assinatura Stripe para WhatsApp
+  // 👇 NOVO: id da assinatura no Stripe (sub_...)
   stripeSubscriptionId?: string | null;
 
   coins?: number;              // moeda Enki
@@ -22,7 +21,7 @@ export interface IConversationQuota extends Document {
   createdAt: Date;
   updatedAt: Date;
 
-  // 👇 ADICIONAR (compat legada)
+  // 👇 campos legados
   usedConversations: number;
   creditEuros: number;
 }
@@ -35,7 +34,7 @@ const ConversationQuotaSchema = new Schema<IConversationQuota>({
   packageType: { type: Number, default: null },
   lastStripeCheckoutId: { type: String, default: null },
 
-  // 🔹 NOVO: campo no Mongo para vincular à assinatura Stripe (WhatsApp)
+  // 👇 NOVO campo no schema
   stripeSubscriptionId: { type: String, default: null },
 
   coins: { type: Number, default: 0 },
@@ -47,7 +46,7 @@ const ConversationQuotaSchema = new Schema<IConversationQuota>({
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() },
 
-  // 👇 ADICIONAR: campos legados para parar de quebrar o TS
+  // 👇 campos legados para parar de quebrar o TS
   usedConversations: { type: Number, default: 0 },
   creditEuros: { type: Number, default: 0 },
 });
