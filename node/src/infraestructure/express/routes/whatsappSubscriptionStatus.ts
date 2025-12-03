@@ -5,7 +5,7 @@ import { PACKAGES } from '../../../utils/packages';
 
 const router = express.Router();
 
-// Usa a mesma chave padrão (ou uma específica se você quiser)
+// Pode usar uma chave específica para WhatsApp ou cair no STRIPE_SECRET_KEY padrão
 const STRIPE_SECRET_KEY_WHATSAPP =
   process.env.STRIPE_SECRET_KEY_WHATSAPP || process.env.STRIPE_SECRET_KEY || '';
 
@@ -14,19 +14,20 @@ const stripe = STRIPE_SECRET_KEY_WHATSAPP
   : null;
 
 /**
- * GET /api/whatsapp/status?username=...
+ * GET /api/billing/whatsapp/status?username=...
  *
- * Retorna:
+ * Resposta:
  * {
  *   success: true,
- *   subscriptionStatus: 'none' | 'active' | 'canceled' | 'incomplete' | ...
- *   packageType: number | null,      // 29 | 59 | 99 ...
+ *   subscriptionStatus: 'none' | 'active' | 'canceled' | ...,
+ *   packageType: number | null,      // 29 | 59 | 99...
  *   cancelAtPeriodEnd: boolean
  * }
  */
-router.get('/whatsapp/status', async (req: Request, res: Response) => {
+router.get('/billing/whatsapp/status', async (req: Request, res: Response) => {
   try {
     const username = req.query.username as string | undefined;
+
     if (!username) {
       return res
         .status(400)
@@ -38,7 +39,7 @@ router.get('/whatsapp/status', async (req: Request, res: Response) => {
       | null;
 
     if (!quota) {
-      // usuário nunca teve registro de quota WhatsApp
+      // usuário nunca teve registro de quota/assinatura WhatsApp
       return res.json({
         success: true,
         subscriptionStatus: 'none',
@@ -50,12 +51,12 @@ router.get('/whatsapp/status', async (req: Request, res: Response) => {
     let subscriptionStatus = 'none';
     let cancelAtPeriodEnd = false;
 
-    // tenta pegar o packageType diretamente do Mongo
+    // tenta pegar packageType direto do Mongo
     let packageType: number | null =
       typeof quota.packageType === 'number' ? quota.packageType : null;
 
     if (quota.stripeSubscriptionId) {
-      // se temos uma subscription associada, assumimos pelo menos "active"
+      // se há uma subscription registrada, assumimos pelo menos "active"
       subscriptionStatus = 'active';
 
       if (stripe) {
@@ -67,7 +68,7 @@ router.get('/whatsapp/status', async (req: Request, res: Response) => {
           subscriptionStatus = sub.status;
           cancelAtPeriodEnd = !!sub.cancel_at_period_end;
 
-          // tenta deduzir o pacote pelo priceId
+          // tenta deduzir o plano pelo priceId do item
           const firstItem = sub.items.data[0];
           if (firstItem) {
             const priceAny = firstItem.price as any;
@@ -77,6 +78,7 @@ router.get('/whatsapp/status', async (req: Request, res: Response) => {
                 : priceAny?.id) || null;
 
             if (priceId) {
+              // percorre pacotes do canal whatsapp
               const entries = Object.entries(PACKAGES.whatsapp) as [
                 string,
                 { priceId: string }
@@ -95,7 +97,7 @@ router.get('/whatsapp/status', async (req: Request, res: Response) => {
             '[whatsapp status] erro ao consultar subscription no Stripe:',
             e
           );
-          // se der erro no Stripe, mantemos o que já tínhamos
+          // se Stripe falhar, mantém o que tinha
         }
       }
     }

@@ -105,6 +105,8 @@ import webchatSubscriptionStatusRouter from './routes/webchatSubscriptionStatus'
 
 import whatsappSubscriptionRouter from './routes/whatsappSubscription';
 
+import whatsappSubscriptionStatus from './routes/whatsappSubscriptionStatus'
+
 
 import catalogRouter from './routes/catalogRouter'
 
@@ -275,6 +277,11 @@ app.use(
   app.use('/api', webchatSubscriptionStatusRouter);
 
   app.use('/api', whatsappSubscriptionRouter); // 👈 novo
+
+  app.use('/api', whatsappSubscriptionStatus);
+
+
+  
 
 
   // 6) Estáticos / Twilio / Uploads
