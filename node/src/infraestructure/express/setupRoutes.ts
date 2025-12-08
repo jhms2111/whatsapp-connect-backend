@@ -331,7 +331,7 @@ io.attach(server, {
   cors: {
     origin: [
       "http://localhost:3000",
-      "https://whatsapp-connect-two.vercel.app"
+      "https://www.enkibot.com.br"
     ],
     methods: ["GET", "POST"],
     credentials: true,
