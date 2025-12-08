@@ -1,4 +1,4 @@
-// routes/webchatVisitorEmail.ts (substitui o router antigo de SMS)
+// routes/webchatVisitorEmail.ts
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
@@ -149,6 +149,43 @@ router.post('/webchat/visitor/verify-code', async (req: Request, res: Response) 
     return res.status(500).json({ error: 'Erro interno' });
   }
 });
+
+/**
+ * POST /api/webchat/start
+ * Headers: Authorization: Bearer <visitorToken>
+ * Inicia / recupera a sessão de chat do visitante autenticado.
+ */
+router.post(
+  '/webchat/start',
+  authenticateVisitorJWT,
+  async (req: Request, res: Response) => {
+    try {
+      const payload = (req as any).visitor as { owner: string; sub: string; v: number };
+
+      // Procura o visitante no Mongo
+      const v = await WebchatVisitor.findOne({
+        owner: payload.owner,
+        email: payload.sub,
+      })
+        .lean<IWebchatVisitor>()
+        .exec();
+
+      if (!v) {
+        return res.status(404).json({ error: 'Sessão não encontrada' });
+      }
+
+      // Aqui você pode fazer outras inicializações se quiser
+      return res.json({
+        ok: true,
+        roomId: v.roomId,
+        sessionId: v.sessionId,
+      });
+    } catch (e) {
+      console.error('[webchat][start] error', e);
+      return res.status(500).json({ error: 'Erro interno ao iniciar o chat' });
+    }
+  }
+);
 
 /**
  * GET /api/webchat/visitor/status
