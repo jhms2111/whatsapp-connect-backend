@@ -185,7 +185,7 @@ router.post('/webchat/visitor/verify-code', async (req: Request, res: Response) 
  * Aqui NÃO damos mais 404 se não achar no banco;
  * usamos apenas o JWT para montar roomId/sessionId.
  */
-router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
+router.post('/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
     const payload = (req as any).visitor as { owner: string; sub: string; v: number };
     const owner = payload.owner;
