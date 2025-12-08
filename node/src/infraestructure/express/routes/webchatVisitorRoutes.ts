@@ -154,6 +154,9 @@ router.post('/webchat/visitor/verify-code', async (req: Request, res: Response) 
  * POST /api/webchat/start
  * Headers: Authorization: Bearer <visitorToken>
  * Inicia / recupera a sessão de chat do visitante autenticado.
+ *
+ * Aqui NÃO damos mais 404 se não achar no banco;
+ * usamos apenas o JWT para montar roomId/sessionId.
  */
 router.post(
   '/webchat/start',
@@ -161,24 +164,36 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const payload = (req as any).visitor as { owner: string; sub: string; v: number };
+      const owner = payload.owner;
+      const email = payload.sub;
 
-      // Procura o visitante no Mongo
-      const v = await WebchatVisitor.findOne({
-        owner: payload.owner,
-        email: payload.sub,
-      })
-        .lean<IWebchatVisitor>()
-        .exec();
+      // Reconstroi roomId e sessionId de forma determinística
+      const roomId = `webchat:${owner}:${email}`;
+      const sessionId = crypto.createHash('sha1').update(roomId).digest('hex');
 
-      if (!v) {
-        return res.status(404).json({ error: 'Sessão não encontrada' });
-      }
+      // (Opcional) Garante que o visitor exista no banco
+      await WebchatVisitor.findOneAndUpdate<IWebchatVisitor>(
+        { owner, email },
+        {
+          $set: {
+            owner,
+            email,
+            roomId,
+            sessionId,
+            updatedAt: new Date(),
+          },
+          $setOnInsert: {
+            visitorTokenVersion: payload.v || 1,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      ).exec();
 
-      // Aqui você pode fazer outras inicializações se quiser
       return res.json({
         ok: true,
-        roomId: v.roomId,
-        sessionId: v.sessionId,
+        roomId,
+        sessionId,
       });
     } catch (e) {
       console.error('[webchat][start] error', e);
@@ -198,20 +213,27 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const payload = (req as any).visitor as { owner: string; sub: string; v: number };
-      // lean tipado para objeto simples
+      const owner = payload.owner;
+      const email = payload.sub;
+
+      // Tenta encontrar no banco
       const v = await WebchatVisitor.findOne({
-        owner: payload.owner,
-        email: payload.sub,
+        owner,
+        email,
       })
         .lean<IWebchatVisitor>()
         .exec();
 
-      if (!v) return res.status(404).json({ error: 'Sessão não encontrada' });
+      // Se não achar, reconstrói igual ao /start
+      const roomId =
+        v?.roomId || `webchat:${owner}:${email}`;
+      const sessionId =
+        v?.sessionId || crypto.createHash('sha1').update(roomId).digest('hex');
 
       return res.json({
         ok: true,
-        roomId: v.roomId,
-        sessionId: v.sessionId,
+        roomId,
+        sessionId,
       });
     } catch (e) {
       console.error('[webchat visitor][status] error', e);
@@ -244,7 +266,6 @@ router.post(
       v.updatedAt = new Date();
       await v.save();
 
-      // Opcional: se você usa Socket.io e guarda io no app, emita um broadcast para a sala:
       try {
         const io = (req.app as any).get?.('io');
         if (io) io.to(v.roomId).emit('webchat:visitor:logout', { roomId: v.roomId });
@@ -259,3 +280,4 @@ router.post(
 );
 
 export default router;
+
