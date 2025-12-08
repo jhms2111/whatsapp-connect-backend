@@ -99,7 +99,7 @@ router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: 
   try {
     const payload = (req as any).visitor as VisitorJwtPayload;
     const v = await WebchatVisitor
-      .findOne({ owner: payload.owner, phoneE164: payload.sub })
+      .findOne({ owner: payload.owner, email: payload.sub })
       .lean<IWebchatVisitor>()
       .exec();
 
@@ -127,7 +127,7 @@ router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: R
 
     // valida sessão do visitante
     const v = await WebchatVisitor
-      .findOne({ owner: username, phoneE164: payload.sub })
+      .findOne({ owner: username, email: payload.sub })
       .lean<IWebchatVisitor>()
       .exec();
     if (!v) return res.status(404).json({ error: 'Sessão não encontrada.' });
@@ -469,3 +469,4 @@ router.get('/admin/webchat/historical-rooms', authenticatePanelJWT, async (req: 
  * =================================================== */
 
 export default router;
+
