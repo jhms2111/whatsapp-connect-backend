@@ -36,7 +36,7 @@ function rateLimitMs(ms: number) {
  * Gera/atualiza o visitante, cria roomId fixo e envia OTP por e-mail.
  */
 router.post(
-  '/visitor/request-code',
+  '/webchat/visitor/request-code',
   rateLimitMs(5000),
   async (req: Request, res: Response) => {
     try {
@@ -109,7 +109,7 @@ router.post(
  * Body: { username: string, email: string, code: string[4-6] }
  * Valida o OTP, “verifica” o visitante e retorna visitorToken + room/session.
  */
-router.post('/visitor/verify-code', async (req: Request, res: Response) => {
+router.post('/webchat/visitor/verify-code', async (req: Request, res: Response) => {
   try {
     const { username, email, code } = (req.body || {}) as {
       username?: string;
@@ -185,7 +185,7 @@ router.post('/visitor/verify-code', async (req: Request, res: Response) => {
  * Aqui NÃO damos mais 404 se não achar no banco;
  * usamos apenas o JWT para montar roomId/sessionId.
  */
-router.post('/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
+router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
     const payload = (req as any).visitor as { owner: string; sub: string; v: number };
     const owner = payload.owner;
@@ -231,7 +231,7 @@ router.post('/start', authenticateVisitorJWT, async (req: Request, res: Response
  * Retorna roomId/sessionId da sessão do visitante autenticado por visitorToken.
  */
 router.get(
-  '/visitor/status',
+  '/webchat/visitor/status',
   authenticateVisitorJWT,
   async (req: Request, res: Response) => {
     try {
@@ -270,7 +270,7 @@ router.get(
  * Invalida o token atual incrementando visitorTokenVersion (derruba TODOS os dispositivos).
  */
 router.post(
-  '/visitor/logout',
+  '/webchat/visitor/logout',
   authenticateVisitorJWT,
   async (req: Request, res: Response) => {
     try {
