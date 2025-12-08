@@ -331,7 +331,10 @@ io.attach(server, {
   cors: {
     origin: [
       "http://localhost:3000",
-      "https://www.enkibot.com.br"
+      "https://www.enkibot.com.br,",
+      "https://enkibot.com.br"
+      
+
     ],
     methods: ["GET", "POST"],
     credentials: true,
