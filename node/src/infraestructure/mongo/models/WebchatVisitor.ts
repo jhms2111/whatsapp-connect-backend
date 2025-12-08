@@ -1,16 +1,18 @@
+// mongo/models/WebchatVisitor.ts
+
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IWebchatVisitor extends Document {
   owner: string;           // username do dono do bot
-  phoneE164: string;       // +5511999999999
-  otpCode?: string | null; // último código gerado (não armazene em prod por muito tempo)
+  email: string;           // e-mail do visitante
+  otpCode?: string | null; // último código gerado
   otpExpiresAt?: Date | null;
   verifiedAt?: Date | null;
   visitorTokenVersion: number;
 
   // Sessão (sala fixa)
   sessionId: string;       // ex: hash/uuid opcional (não precisa se usar roomId direto)
-  roomId: string;          // "webchat:<owner>:<phoneE164>"
+  roomId: string;          // "webchat:<owner>:<email>"
 
   createdAt: Date;
   updatedAt: Date;
@@ -18,7 +20,7 @@ export interface IWebchatVisitor extends Document {
 
 const WebchatVisitorSchema = new Schema<IWebchatVisitor>({
   owner: { type: String, index: true, required: true },
-  phoneE164: { type: String, index: true, required: true },
+  email: { type: String, index: true, required: true },
   otpCode: { type: String, default: null },
   otpExpiresAt: { type: Date, default: null },
   verifiedAt: { type: Date, default: null },
@@ -31,7 +33,7 @@ const WebchatVisitorSchema = new Schema<IWebchatVisitor>({
   updatedAt: { type: Date, default: () => new Date() },
 });
 
-WebchatVisitorSchema.index({ owner: 1, phoneE164: 1 }, { unique: true });
+WebchatVisitorSchema.index({ owner: 1, email: 1 }, { unique: true });
 
 WebchatVisitorSchema.pre('save', function (next) {
   (this as any).updatedAt = new Date();
