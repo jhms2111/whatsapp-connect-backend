@@ -7,7 +7,7 @@ import twilio from 'twilio';
 import Cliente from '../../mongo/models/clienteModel';
 import WebchatQuota, { IWebchatQuota } from '../../mongo/models/webchatQuotaModel';
 import WebchatTrialPhone from '../../mongo/models/WebchatTrialClaim'; // blocklist (telefone já usado)
-import WebchatTrialCode from '../../mongo/models/WebchatTrialCode';   // 👈 NOVO: códigos temporários
+import WebchatTrialCode from '../../mongo/models/WebchatTrialCode';   // códigos temporários
 
 // Middlewares
 import { authenticateJWT } from '../middleware/authMiddleware';
@@ -26,23 +26,47 @@ async function sendSmsE164(toE164: string, body: string) {
     return;
   }
 
-  const senderId   = process.env.TWILIO_SENDER_ID || '';
-  const fromNumber = twilioFrom || '';
-  const from = senderId || fromNumber;
+  const senderId   = process.env.TWILIO_SENDER_ID || ''; // alphanumeric
+  const fromNumber = twilioFrom || '';                   // número Twilio
+  const isBrazil   = toE164.startsWith('+55');
 
-  if (!from) {
-    throw new Error(
-      'Nenhum remetente configurado. Defina TWILIO_SENDER_ID ou TWILIO_FROM_NUMBER.'
-    );
+  let from: string;
+
+  if (isBrazil) {
+    // 🇧🇷 Brasil NÃO aceita alphanumeric → obriga usar número
+    if (!fromNumber) {
+      throw new Error(
+        'TWILIO_FROM_NUMBER obrigatório para envio de SMS no Brasil (+55).'
+      );
+    }
+    from = fromNumber;
+  } else {
+    // Outros países → tenta alphanumeric, senão cai pro número
+    from = senderId || fromNumber;
+    if (!from) {
+      throw new Error(
+        'Nenhum remetente configurado. Defina TWILIO_SENDER_ID ou TWILIO_FROM_NUMBER.'
+      );
+    }
   }
 
   console.log('[WEBCHAT TRIAL] SMS FROM =', from, 'TO =', toE164);
 
-  await twilioClient.messages.create({
-    to: toE164,
-    from,
-    body,
-  });
+  try {
+    await twilioClient.messages.create({
+      to: toE164,
+      from,
+      body,
+    });
+  } catch (err: any) {
+    console.error(
+      '[WEBCHAT TRIAL] Twilio error:',
+      err?.code,
+      err?.message,
+      err?.moreInfo
+    );
+    throw new Error(`Twilio error ${err?.code || ''}: ${err?.message || 'Falha ao enviar SMS'}`);
+  }
 }
 
 /** ========== Utils ========== */
@@ -165,7 +189,7 @@ async function handleRequestCode(req: Request, res: Response) {
     }
 
     // Blocklist global (número já usado em qualquer conta)
-    const phoneBlocked = await WebchatTrialPhone.findOne({ phone }, { _id: 1 }).lean().exec();
+    const phoneBlocked = await WebchatTrialPhone.findOne({ phone: phoneE164 }, { _id: 1 }).lean().exec();
     if (phoneBlocked) {
       return res.status(409).json({ error: 'Este telefone já foi usado para ativar o trial.' });
     }
@@ -259,7 +283,7 @@ async function handleVerifyCode(req: Request, res: Response) {
     await WebchatTrialCode.deleteOne({ _id: rec._id }).exec();
 
     // Blocklist global (antes de conceder, checar de novo)
-    const phoneBlocked = await WebchatTrialPhone.findOne({ phone }, { _id: 1 }).lean().exec();
+    const phoneBlocked = await WebchatTrialPhone.findOne({ phone: phoneE164 }, { _id: 1 }).lean().exec();
     if (phoneBlocked) {
       return res.status(409).json({ error: 'Este telefone já foi usado para ativar o trial.' });
     }
