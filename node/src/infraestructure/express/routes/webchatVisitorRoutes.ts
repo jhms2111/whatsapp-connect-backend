@@ -181,7 +181,7 @@ router.post('/webchat/visitor/login-name', async (req: Request, res: Response) =
 /* ===================================================
  * 1) WEBCHAT: start (visitante autenticado)
  * =================================================== */
-router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
+router.post('/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
     const payload = (req as any).visitor as VisitorJwtPayload;
     const visitor = await WebchatVisitor
