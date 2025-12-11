@@ -158,13 +158,15 @@ router.post('/webchat/visitor/login-name', async (req: Request, res: Response) =
 
     // monta o payload que o authenticateVisitorJWT espera
     const payload: VisitorJwtPayload = {
-      owner: owner,
-      sub: normalizedName, // sub = nome de acesso (ex: joao_henrique2111)
-    };
+  owner: owner,
+  sub: normalizedName,
+  v: 1,  // valor padrão usado no seu JWT (ou o que seu sistema espera)
+};
+
 
     const visitorToken = jwt.sign(payload, VISITOR_JWT_SECRET, {
-      expiresIn: '30d',
-    });
+  expiresIn: '30d',
+});
 
     return res.json({
       visitorToken: visitorToken,
