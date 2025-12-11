@@ -1,311 +1,472 @@
-// routes/webchatVisitorEmail.ts
-
 import { Router, Request, Response } from 'express';
-import crypto from 'crypto';
+
+import Message from '../../mongo/models/messageModel';
 import WebchatVisitor, { IWebchatVisitor } from '../../mongo/models/WebchatVisitor';
-import { sendEmail } from '../../../utils/email';
-import { signVisitorJWT, authenticateVisitorJWT } from '../middleware/authVisitor';
+import Cliente from '../../mongo/models/clienteModel';
+import Bot from '../../mongo/models/botModel';
+import Product, { IProduct } from '../../mongo/models/productModel';
+import ClientMemory from '../../mongo/models/clientMemoryModel';
+
+// Quota WebChat
+import WebchatQuota, { IWebchatQuota } from '../../mongo/models/webchatQuotaModel';
+import { spendWebchatCharacters } from '../../../modules/billing/webchatUsage';
+
+// IA & helpers
+import {
+  generateBotResponse,
+  detectLang,
+  Product as LLMProduct,
+  ChatHistoryItem,
+  MemoryContext,
+} from '../../../modules/integration/Chatgpt/chatGptAdapter';
+import { buildTextSearchQuery } from '../../../utils/search';
+
+// 🔒 Guard do owner (usa botsEnabled/status com cache)
+import { canAutoReplyOwner } from '../../../infraestructure/express/helpers/botGuard';
+
+// ====== MIDDLEWARE DO PAINEL INLINE (para evitar erro de import) ======
+import jwt from 'jsonwebtoken';
+
+export type PanelJwtPayload = {
+  username: string; // dono do painel
+  iat?: number;
+  exp?: number;
+};
+
+const PANEL_JWT_SECRET = process.env.PANEL_JWT_SECRET || 'panel-secret-change-me';
+
+export function authenticatePanelJWT(req: Request, res: Response, next: Function) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+  const token = auth.slice(7);
+  try {
+    const payload = jwt.verify(token, PANEL_JWT_SECRET) as PanelJwtPayload;
+    if (!payload?.username) return res.status(401).json({ error: 'Unauthorized' });
+    (req as any).panel = payload;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+// ======================================================================
 
 const router = Router();
+const CHARS_PER_CONV = 500;
 
-/**
- * Rate-limit simples por IP e rota (anti-spam).
- */
-const lastHit = new Map<string, number>();
-
-function rateLimitMs(ms: number) {
-  return (req: Request, res: Response, next: Function) => {
-    const key = `${req.ip}:${req.path}`;
-    const now = Date.now();
-    const last = lastHit.get(key) || 0;
-
-    if (now - last < ms) {
-      return res
-        .status(429)
-        .json({ error: 'Muitas requisições. Tente novamente em instantes.' });
-    }
-
-    lastHit.set(key, now);
-    next();
+/* ----------------------- Utils ----------------------- */
+function mapDoc(p: any): LLMProduct {
+  return {
+    id: p.id_external || String(p._id),
+    category: p.category || 'Outro',
+    name: p.name || '',
+    description: p.description || '',
+    price: typeof p.price_eur === 'number' ? p.price_eur : (typeof p.price === 'number' ? p.price : 0),
+    price_eur: typeof p.price_eur === 'number' ? p.price_eur : null,
+    allergens: Array.isArray(p.allergens) ? p.allergens : [],
+    contains_pork: !!p.contains_pork,
+    spicy: !!p.spicy,
+    vegetarian: !!p.vegetarian,
+    vegan: !!p.vegan,
+    pregnancy_unsuitable: !!p.pregnancy_unsuitable,
+    recommended_alcoholic: p.recommended_alcoholic ?? null,
+    recommended_non_alcoholic: p.recommended_non_alcoholic ?? null,
+    notes: p.notes ?? null,
+    imageUrl: p.imageUrl || undefined,
   };
 }
 
-/**
- * POST /api/webchat/visitor/request-code
- * Body: { username: string, email: string }
- * Gera/atualiza o visitante, cria roomId fixo e envia OTP por e-mail.
- */
-router.post(
-  '/webchat/visitor/request-code',
-  rateLimitMs(5000),
-  async (req: Request, res: Response) => {
-    try {
-      const { username, email } = (req.body || {}) as {
-        username?: string;
-        email?: string;
-      };
+async function pickRelevant(productIds: any[], userText: string): Promise<LLMProduct[]> {
+  const textQuery = buildTextSearchQuery(userText);
+  let relevantRaw = await Product.find({
+    _id: { $in: productIds },
+    ...(textQuery ? { $text: { $search: textQuery } } : {}),
+  })
+    .limit(5)
+    .lean();
 
-      const owner = String(username || '').trim();
-      const normalizedEmail = String(email || '').trim().toLowerCase();
-
-      if (!owner) {
-        return res.status(400).json({ error: 'username obrigatório' });
-      }
-
-      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-        return res.status(400).json({ error: 'E-mail inválido' });
-      }
-
-      // Gera OTP e período de expiração
-      const code = ('' + Math.floor(100000 + Math.random() * 900000)).slice(-6);
-      const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
-
-      // Sala fixa por (owner, email)
-      const roomId = `webchat:${owner}:${normalizedEmail}`;
-      const sessionId = crypto.createHash('sha1').update(roomId).digest('hex');
-
-      // Upsert do visitante
-      await WebchatVisitor.findOneAndUpdate<IWebchatVisitor>(
-        { owner, email: normalizedEmail },
-        {
-          $set: {
-            owner,
-            email: normalizedEmail,
-            roomId,
-            sessionId,
-            otpCode: code,
-            otpExpiresAt: expires,
-            updatedAt: new Date(),
-          },
-          $setOnInsert: {
-            visitorTokenVersion: 1,
-            createdAt: new Date(),
-          },
-        },
-        { upsert: true, new: true }
-      ).exec();
-
-      // Envia e-mail com o código
-      await sendEmail({
-        to: normalizedEmail,
-        subject: 'Seu código para entrar no chat ENKI',
-        text: `Seu código de verificação para entrar no chat ENKI é: ${code}. Ele é válido por 5 minutos.`,
-        html: `<p>Olá,</p>
-               <p>Seu código de verificação para entrar no chat <b>ENKI</b> é:</p>
-               <p style="font-size: 20px; font-weight: bold; letter-spacing: 4px;">${code}</p>
-               <p>Ele é válido por 5 minutos. Se você não solicitou este código, ignore este e-mail.</p>`,
-      });
-
-      return res.json({ ok: true });
-    } catch (e) {
-      console.error('[webchat visitor][request-code] error', e);
-      return res.status(500).json({ error: 'Erro interno' });
-    }
+  if (!relevantRaw.length) {
+    relevantRaw = await Product.find({ _id: { $in: productIds } }).limit(3).lean();
   }
-);
+  return relevantRaw.map(mapDoc);
+}
 
-/**
- * POST /api/webchat/visitor/verify-code
- * Body: { username: string, email: string, code: string[4-6] }
- * Valida o OTP, “verifica” o visitante e retorna visitorToken + room/session.
- */
-router.post('/webchat/visitor/verify-code', async (req: Request, res: Response) => {
+/* ===================================================
+ * 1) WEBCHAT: start (visitante autenticado)
+ * =================================================== */
+import { authenticateVisitorJWT, VisitorJwtPayload } from '../middleware/authVisitor';
+
+router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
-    const { username, email, code } = (req.body || {}) as {
-      username?: string;
-      email?: string;
-      code?: string | number;
-    };
+    const payload = (req as any).visitor as VisitorJwtPayload;
+    const v = await WebchatVisitor
+      .findOne({ owner: payload.owner, email: payload.sub })
+      .lean<IWebchatVisitor>()
+      .exec();
 
-    const owner = String(username || '').trim();
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!v) return res.status(404).json({ error: 'Sessão não encontrada.' });
 
-    if (!owner) {
-      return res.status(400).json({ error: 'username obrigatório' });
-    }
-
-    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      return res.status(400).json({ error: 'E-mail inválido' });
-    }
-
-    if (!/^\d{4,6}$/.test(String(code || ''))) {
-      return res.status(400).json({ error: 'Código inválido' });
-    }
-
-    // Busca documento único
-    const v = await WebchatVisitor.findOne<IWebchatVisitor>({
-      owner,
-      email: normalizedEmail,
-    }).exec();
-
-    if (!v) {
-      return res.status(404).json({ error: 'Solicite o código primeiro' });
-    }
-
-    if (
-      !v.otpCode ||
-      !v.otpExpiresAt ||
-      new Date(v.otpExpiresAt).getTime() < Date.now()
-    ) {
-      return res.status(400).json({ error: 'Código expirado. Solicite novamente.' });
-    }
-
-    if (v.otpCode !== String(code)) {
-      return res.status(400).json({ error: 'Código incorreto' });
-    }
-
-    v.verifiedAt = new Date();
-    v.otpCode = null;
-    v.otpExpiresAt = null;
-    v.updatedAt = new Date();
-    await v.save();
-
-    const token = signVisitorJWT({
-      sub: normalizedEmail,
-      owner,
-      v: v.visitorTokenVersion,
-    });
-
-    return res.json({
-      visitorToken: token,
-      roomId: v.roomId,
-      sessionId: v.sessionId,
-    });
+    return res.json({ roomId: v.roomId, sessionId: v.sessionId });
   } catch (e) {
-    console.error('[webchat visitor][verify-code] error', e);
-    return res.status(500).json({ error: 'Erro interno' });
+    console.error('[webchat/start] error', e);
+    return res.status(500).json({ error: 'Erro interno.' });
   }
 });
 
-/**
- * POST /api/webchat/start
- * Headers: Authorization: Bearer <visitorToken>
- * Inicia / recupera a sessão de chat do visitante autenticado.
- *
- * Aqui NÃO damos mais 404 se não achar no banco;
- * usamos apenas o JWT para montar roomId/sessionId.
- */
-router.post('/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
+/* ===================================================
+ * 2) WEBCHAT: enviar mensagem + BOT PIPELINE (visitante)
+ * =================================================== */
+router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
-    const payload = (req as any).visitor as { owner: string; sub: string; v: number };
-    const owner = payload.owner;
-    const email = payload.sub;
+    const payload = (req as any).visitor as VisitorJwtPayload; // { owner, sub (phoneE164) }
+    const { text } = (req.body || {}) as { text?: string };
+    const username = payload.owner;
 
-    // Reconstrói roomId e sessionId de forma determinística
-    const roomId = `webchat:${owner}:${email}`;
-    const sessionId = crypto.createHash('sha1').update(roomId).digest('hex');
+    if (!text || !String(text).trim()) {
+      return res.status(400).json({ error: 'Texto vazio.' });
+    }
 
-    // (Opcional) Garante que o visitor exista no banco
-    await WebchatVisitor.findOneAndUpdate<IWebchatVisitor>(
-      { owner, email },
-      {
-        $set: {
-          owner,
-          email,
-          roomId,
-          sessionId,
-          updatedAt: new Date(),
-        },
-        $setOnInsert: {
-          visitorTokenVersion: payload.v || 1,
-          createdAt: new Date(),
-        },
-      },
-      { upsert: true }
-    ).exec();
+    // valida sessão do visitante
+    const v = await WebchatVisitor
+      .findOne({ owner: username, email: payload.sub })
+      .lean<IWebchatVisitor>()
+      .exec();
+    if (!v) return res.status(404).json({ error: 'Sessão não encontrada.' });
 
-    return res.json({
-      ok: true,
-      roomId,
-      sessionId,
-    });
-  } catch (e) {
-    console.error('[webchat][start] error', e);
-    return res.status(500).json({ error: 'Erro interno ao iniciar o chat' });
-  }
-});
+    const roomId = v.roomId;
 
-/**
- * GET /api/webchat/visitor/status
- * Headers: Authorization: Bearer <visitorToken>
- * Retorna roomId/sessionId da sessão do visitante autenticado por visitorToken.
- */
-router.get(
-  '/webchat/visitor/status',
-  authenticateVisitorJWT,
-  async (req: Request, res: Response) => {
-    try {
-      const payload = (req as any).visitor as { owner: string; sub: string; v: number };
-      const owner = payload.owner;
-      const email = payload.sub;
-
-      // Tenta encontrar no banco
-      const v = await WebchatVisitor.findOne({
-        owner,
-        email,
-      })
-        .lean<IWebchatVisitor>()
-        .exec();
-
-      // Se não achar, reconstrói igual ao /start
-      const roomId = v?.roomId || `webchat:${owner}:${email}`;
-      const sessionId =
-        v?.sessionId || crypto.createHash('sha1').update(roomId).digest('hex');
-
-      return res.json({
-        ok: true,
+    // 🔒 Se os bots estiverem pausados/bloqueados para este owner,
+    //     apenas salve/propague a mensagem e NÃO gere resposta automática.
+    const autoReplyAllowed = await canAutoReplyOwner(username);
+    if (!autoReplyAllowed) {
+      await Message.create({
         roomId,
-        sessionId,
+        sender: payload.sub,  // telefone do visitante
+        message: String(text),
+        sent: true,
+        timestamp: new Date(),
+        to: username,
+        channel: 'webchat',
       });
-    } catch (e) {
-      console.error('[webchat visitor][status] error', e);
-      return res.status(500).json({ error: 'Erro interno' });
+
+      // notifica painel/histórico em tempo real (sem resposta automática)
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('historicalRoomUpdated', {
+            roomId,
+            lastMessage: text,
+            lastTimestamp: new Date().toISOString(),
+            channel: 'webchat',
+          });
+          io.to(roomId).emit('webchat message', {
+            roomId,
+            sender: payload.sub,
+            message: String(text),
+            timestamp: new Date().toISOString(),
+            channel: 'webchat',
+            sent: true,
+          });
+        }
+      } catch {}
+
+      return res.json({ ok: true, reply: '' });
     }
-  }
-);
 
-/**
- * POST /api/webchat/visitor/logout
- * Headers: Authorization: Bearer <visitorToken>
- * Invalida o token atual incrementando visitorTokenVersion (derruba TODOS os dispositivos).
- */
-router.post(
-  '/webchat/visitor/logout',
-  authenticateVisitorJWT,
-  async (req: Request, res: Response) => {
+    // (1) QUOTA WEBCHAT do proprietário (somente quando auto-reply está ativo)
+    const q = await WebchatQuota
+      .findOne({ username }, { totalConversations: 1, usedCharacters: 1 })
+      .lean<IWebchatQuota | null>();
+
+    const maxChars = (q?.totalConversations || 0) * CHARS_PER_CONV;
+    if (!q || !q.totalConversations || (q.usedCharacters || 0) >= maxChars) {
+      // mesmo sem crédito, salvamos a entrada do visitante e notificamos o painel
+      await Message.create({
+        roomId,
+        sender: payload.sub,
+        message: String(text),
+        sent: true,
+        timestamp: new Date(),
+        to: username,
+        channel: 'webchat',
+      });
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('historicalRoomUpdated', {
+            roomId,
+            lastMessage: text,
+            lastTimestamp: new Date().toISOString(),
+            channel: 'webchat',
+          });
+          io.to(roomId).emit('webchat message', {
+            roomId,
+            sender: payload.sub,
+            message: String(text),
+            timestamp: new Date().toISOString(),
+            channel: 'webchat',
+            sent: true,
+          });
+        }
+      } catch {}
+      return res.status(402).json({ error: 'Créditos (WebChat) esgotados' });
+    }
+
+    // (2) salva entrada do visitante (auto-reply permitido)
+    await Message.create({
+      roomId,
+      sender: payload.sub,  // telefone do visitante
+      message: String(text),
+      sent: true,
+      timestamp: new Date(),
+      to: username,
+      channel: 'webchat',
+    });
+
+    // (2.1) notifica painel/histórico
     try {
-      const payload = (req as any).visitor as { owner: string; sub: string; v: number };
-
-      const v = await WebchatVisitor.findOne({
-        owner: payload.owner,
-        email: payload.sub,
-      }).exec();
-
-      if (!v) {
-        return res.status(404).json({ error: 'Sessão não encontrada' });
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('historicalRoomUpdated', {
+          roomId,
+          lastMessage: text,
+          lastTimestamp: new Date().toISOString(),
+          channel: 'webchat',
+        });
+        io.to(roomId).emit('webchat message', {
+          roomId,
+          sender: payload.sub,
+          message: String(text),
+          timestamp: new Date().toISOString(),
+          channel: 'webchat',
+          sent: true,
+        });
       }
+    } catch {}
 
-      v.visitorTokenVersion = (v.visitorTokenVersion || 1) + 1;
-      v.otpCode = null;
-      v.otpExpiresAt = null;
-      v.updatedAt = new Date();
-      await v.save();
+    // (3) memória (opcional)
+    let memory: MemoryContext = {};
+    try {
+      const mem = await ClientMemory.findOne({ clientId: payload.sub }).lean();
+      if (mem) memory = { topics: (mem as any).topicsAgg ?? [], sentiment: (mem as any).sentimentAgg ?? 'neutral' };
+    } catch {}
+
+    // (4) carrega bot e produtos do proprietário
+    const bot = await Bot.findOne({ owner: username }).populate<{ product: IProduct | IProduct[] }>('product');
+    if (!bot) return res.status(404).json({ error: 'Bot não encontrado' });
+
+    const productDocs: IProduct[] = Array.isArray((bot as any).product)
+      ? ((bot as any).product as IProduct[])
+      : [((bot as any).product as IProduct)].filter(Boolean);
+
+    const allProductsRaw = await Product.find({ _id: { $in: productDocs.map(p => p._id) } }).lean();
+    const allProducts = allProductsRaw.map(mapDoc);
+
+    // (5) histórico curto (últimos 6)
+    const last = await Message.find({ roomId }).sort({ timestamp: -1 }).limit(6).lean();
+    const history: ChatHistoryItem[] = last.reverse().map(m => ({
+      role: m.sender === 'Bot' ? 'assistant' : 'user',
+      content: m.message || '',
+    }));
+
+    // (6) relevantes + debita entrada
+    const relevant = await pickRelevant(productDocs.map(p => p._id), String(text));
+    try { await spendWebchatCharacters(username, String(text).length); } catch {}
+
+    // (7) IA
+    const reply = await generateBotResponse(
+      (bot as any).name ?? 'Enki',
+      (bot as any).persona ?? 'simpática',
+      relevant,
+      allProducts,
+      (bot as any).temperature ?? 0.5,
+      String(text),
+      {
+        name: (bot as any).companyName ?? 'Empresa',
+        address: (bot as any).address ?? 'Endereço',
+        email: (bot as any).email ?? 'email@empresa.com',
+        phone: (bot as any).phone ?? '(00) 00000-0000',
+      },
+      history,
+      memory,
+      { userInputLanguage: detectLang(String(text)) },
+      productDocs.map((p) => p.name),
+      { about: (bot as any).about, guidelines: (bot as any).guidelines }
+    );
+
+    // (8) salva resposta + debita saída + notifica
+    if (reply) {
+      await Message.create({
+        roomId,
+        sender: 'Bot',
+        message: reply,
+        sent: true,
+        timestamp: new Date(),
+        to: username,
+        channel: 'webchat',
+      });
+      try { await spendWebchatCharacters(username, reply.length); } catch {}
 
       try {
-        const io = (req.app as any).get?.('io');
+        const io = req.app.get('io');
         if (io) {
-          io.to(v.roomId).emit('webchat:visitor:logout', { roomId: v.roomId });
+          io.emit('historicalRoomUpdated', {
+            roomId,
+            lastMessage: reply,
+            lastTimestamp: new Date().toISOString(),
+            channel: 'webchat',
+          });
+          io.to(roomId).emit('webchat message', {
+            roomId,
+            sender: 'Bot',
+            message: reply,
+            timestamp: new Date().toISOString(),
+            channel: 'webchat',
+            sent: true,
+          });
         }
-      } catch {
-        // ignora erro de socket
-      }
-
-      return res.json({ ok: true });
-    } catch (e) {
-      console.error('[webchat visitor][logout] error', e);
-      return res.status(500).json({ error: 'Erro interno' });
+      } catch {}
     }
+
+    return res.json({ ok: true, reply: reply || '' });
+  } catch (e: any) {
+    console.error('[webchat/send] error', e?.errors || e);
+    return res.status(500).json({ error: e?.message || 'Erro interno.' });
   }
-);
+});
+
+/* ===================================================
+ * 3) WEBCHAT: listar mensagens (VISITANTE)
+ *     - exige JWT de visitante
+ *     - valida roomId exatamente do visitante
+ *     - filtra mensagens de sistema
+ * =================================================== */
+router.get('/webchat/messages/:roomId', authenticateVisitorJWT, async (req: Request, res: Response) => {
+  try {
+    const payload = (req as any).visitor as VisitorJwtPayload;
+    const { roomId } = req.params;
+
+    const expectedRoomId = `webchat:${payload.owner}:${payload.sub}`;
+    if (roomId !== expectedRoomId) {
+      return res.status(403).json({ error: 'Você não tem permissão para esta sala.' });
+    }
+
+    const msgs = await Message
+      .find({
+        roomId: expectedRoomId,
+        sender: { $ne: 'system' },
+        message: { $ne: 'webchat_started' },
+      })
+      .sort({ timestamp: 1 })
+      .lean()
+      .exec();
+
+    return res.json(Array.isArray(msgs) ? msgs : []);
+  } catch (e) {
+    console.error('[webchat/messages] error', e);
+    return res.status(500).json({ error: 'Erro interno.' });
+  }
+});
+
+/* ===================================================
+ * 4) ADMIN/PAINEL: listar mensagens de UMA sala do próprio owner
+ *     - exige JWT do painel
+ *     - garante prefixo do roomId = webchat:<username>:
+ *     - filtra mensagens de sistema
+ * =================================================== */
+router.get('/admin/webchat/messages/:roomId', authenticatePanelJWT, async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const payload = (req as any).panel as PanelJwtPayload; // { username }
+    const prefix = `webchat:${payload.username}:`;
+
+    if (!roomId.startsWith(prefix)) {
+      return res.status(403).json({ error: 'Você não tem permissão para esta sala.' });
+    }
+
+    const msgs = await Message
+      .find({
+        roomId,
+        sender: { $ne: 'system' },
+        message: { $ne: 'webchat_started' },
+      })
+      .sort({ timestamp: 1 })
+      .lean()
+      .exec();
+
+    return res.json(Array.isArray(msgs) ? msgs : []);
+  } catch (e) {
+    console.error('[admin/webchat/messages] error', e);
+    return res.status(500).json({ error: 'Erro interno.' });
+  }
+});
+
+/* ===================================================
+ * 5) ADMIN/PAINEL: histórico de salas SOMENTE do owner logado
+ *     - exige JWT do painel
+ *     - junta última mensagem + salas sem mensagem (via WebchatVisitor)
+ * =================================================== */
+router.get('/admin/webchat/historical-rooms', authenticatePanelJWT, async (req: Request, res: Response) => {
+  try {
+    const payload = (req as any).panel as PanelJwtPayload; // { username }
+    const prefix = `webchat:${payload.username}:`;
+
+    // últimas mensagens (ignorando sistema) apenas do owner
+    const lastMsgs = await Message.find({
+      roomId: { $regex: new RegExp(`^${prefix.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}`) },
+      sender: { $ne: 'system' },
+      message: { $ne: 'webchat_started' },
+    })
+      .sort({ timestamp: -1 })
+      .limit(500)
+      .lean()
+      .exec();
+
+    const map = new Map<string, { _id: string; lastMessage: string; lastTimestamp: string }>();
+    for (const m of lastMsgs) {
+      if (!m?.roomId) continue;
+      if (!map.has(m.roomId)) {
+        const ts = m.timestamp instanceof Date ? m.timestamp : new Date(m.timestamp || Date.now());
+        map.set(m.roomId, {
+          _id: m.roomId,
+          lastMessage: m.message || '',
+          lastTimestamp: ts.toISOString(),
+        });
+      }
+    }
+
+    // complementa com visitantes do owner
+    const visitors = await WebchatVisitor.find({ owner: payload.username })
+      .lean<IWebchatVisitor[]>()
+      .exec();
+
+    for (const v of visitors || []) {
+      if (!v?.roomId?.startsWith(prefix)) continue;
+      if (!map.has(v.roomId)) {
+        const ts: any = (v as any).updatedAt || (v as any).verifiedAt || (v as any).createdAt || new Date(0);
+        map.set(v.roomId, {
+          _id: v.roomId,
+          lastMessage: '',
+          lastTimestamp: (ts instanceof Date ? ts : new Date(ts)).toISOString(),
+        });
+      }
+    }
+
+    const list = Array.from(map.values()).sort(
+      (a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
+    );
+
+    return res.json(list);
+  } catch (e) {
+    console.error('[admin/webchat/historical-rooms] error', e);
+    return res.status(500).json({ error: 'Erro interno.' });
+  }
+});
+
+/* ===================================================
+ * ⚠️ REMOVIDO: rotas duplicadas de /webchat/bots/global-status
+ *   (as que faziam updateMany em todos os clientes).
+ *   A versão correta (por usuário) está no router separado abaixo.
+ * =================================================== */
 
 export default router;
+
