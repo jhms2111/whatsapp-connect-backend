@@ -50,8 +50,6 @@ export function authenticatePanelJWT(req: Request, res: Response, next: Function
 }
 // ======================================================================
 
-import { authenticateVisitorJWT, VisitorJwtPayload } from '../middleware/authVisitor';
-
 const router = Router();
 const CHARS_PER_CONV = 500;
 
@@ -94,14 +92,14 @@ async function pickRelevant(productIds: any[], userText: string): Promise<LLMPro
 
 /* ===================================================
  * 1) WEBCHAT: start (visitante autenticado)
- *     - usa o JWT do visitante (owner + sub)
- *     - sub agora é o NOME de acesso do visitante
  * =================================================== */
+import { authenticateVisitorJWT, VisitorJwtPayload } from '../middleware/authVisitor';
+
 router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
     const payload = (req as any).visitor as VisitorJwtPayload;
     const v = await WebchatVisitor
-      .findOne({ owner: payload.owner, email: payload.sub }) // email = nome do visitante
+      .findOne({ owner: payload.owner, email: payload.sub })
       .lean<IWebchatVisitor>()
       .exec();
 
@@ -116,12 +114,10 @@ router.post('/webchat/start', authenticateVisitorJWT, async (req: Request, res: 
 
 /* ===================================================
  * 2) WEBCHAT: enviar mensagem + BOT PIPELINE (visitante)
- *     - visitantes autenticados via JWT (owner + sub)
- *     - sub = nome de acesso configurado no webchat (ex: joao_henrique2111)
  * =================================================== */
 router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: Response) => {
   try {
-    const payload = (req as any).visitor as VisitorJwtPayload; // { owner, sub (nome de acesso do visitante) }
+    const payload = (req as any).visitor as VisitorJwtPayload; // { owner, sub (phoneE164) }
     const { text } = (req.body || {}) as { text?: string };
     const username = payload.owner;
 
@@ -129,7 +125,7 @@ router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: R
       return res.status(400).json({ error: 'Texto vazio.' });
     }
 
-    // valida sessão do visitante (nome salvo no campo email)
+    // valida sessão do visitante
     const v = await WebchatVisitor
       .findOne({ owner: username, email: payload.sub })
       .lean<IWebchatVisitor>()
@@ -144,7 +140,7 @@ router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: R
     if (!autoReplyAllowed) {
       await Message.create({
         roomId,
-        sender: payload.sub,  // identificador do visitante (nome de acesso)
+        sender: payload.sub,  // telefone do visitante
         message: String(text),
         sent: true,
         timestamp: new Date(),
@@ -186,7 +182,7 @@ router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: R
       // mesmo sem crédito, salvamos a entrada do visitante e notificamos o painel
       await Message.create({
         roomId,
-        sender: payload.sub,  // identificador do visitante (nome de acesso)
+        sender: payload.sub,
         message: String(text),
         sent: true,
         timestamp: new Date(),
@@ -218,7 +214,7 @@ router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: R
     // (2) salva entrada do visitante (auto-reply permitido)
     await Message.create({
       roomId,
-      sender: payload.sub,  // identificador do visitante (nome de acesso)
+      sender: payload.sub,  // telefone do visitante
       message: String(text),
       sent: true,
       timestamp: new Date(),
@@ -250,7 +246,6 @@ router.post('/webchat/send', authenticateVisitorJWT, async (req: Request, res: R
     // (3) memória (opcional)
     let memory: MemoryContext = {};
     try {
-      // IMPORTANTE: aqui o clientId passa a ser o nome de acesso (payload.sub)
       const mem = await ClientMemory.findOne({ clientId: payload.sub }).lean();
       if (mem) memory = { topics: (mem as any).topicsAgg ?? [], sentiment: (mem as any).sentimentAgg ?? 'neutral' };
     } catch {}
@@ -350,7 +345,7 @@ router.get('/webchat/messages/:roomId', authenticateVisitorJWT, async (req: Requ
     const payload = (req as any).visitor as VisitorJwtPayload;
     const { roomId } = req.params;
 
-    const expectedRoomId = `webchat:${payload.owner}:${payload.sub}`; // sub = nome do visitante
+    const expectedRoomId = `webchat:${payload.owner}:${payload.sub}`;
     if (roomId !== expectedRoomId) {
       return res.status(403).json({ error: 'Você não tem permissão para esta sala.' });
     }
@@ -474,3 +469,4 @@ router.get('/admin/webchat/historical-rooms', authenticatePanelJWT, async (req: 
  * =================================================== */
 
 export default router;
+
