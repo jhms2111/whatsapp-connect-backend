@@ -233,7 +233,7 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
 
     // História
     const history: ChatHistoryItem[] = [];
-    const lastMsgs = await Message.find({ roomId }).sort({ timestamp: -1 }).limit(3).lean();
+    const lastMsgs = await Message.find({ roomId }).sort({ timestamp: -1 }).limit(8).lean();
     lastMsgs.reverse().forEach((m) => {
       history.push({ role: m.sender === 'Bot' ? 'assistant' : 'user', content: m.message || '' });
     });
