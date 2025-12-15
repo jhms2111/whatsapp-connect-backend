@@ -1,20 +1,20 @@
 //webchatPackages.ts
 
 export const WEBCHAT_PACKAGES = {
-  19: {
-    priceEuros: 19,
-    conversations: 100,
-    priceId: 'price_1SMkWqHDM5RMdQdJPSrOlBYu', // substitua pelos seus IDs reais do Stripe
+  49: {
+    priceEuros: 49,
+    conversations: 200,
+    priceId: 'price_1SeXIFHTEWXeEltkShbBgUoP', // substitua pelos seus IDs reais do Stripe
   },
-  39: {
-    priceEuros: 39,
-    conversations: 300,
-    priceId: 'price_1SDuY3HDM5RMdQdJG4cDy7jf',
+  99: {
+    priceEuros: 99,
+    conversations: 600,
+    priceId: 'price_1SeWlqHTEWXeEltkbZRadfKY',
   },
-  79: {
-    priceEuros: 79,
-    conversations: 900,
-    priceId: 'price_1SDuZHHDM5RMdQdJY5vuIEmp',
+  139: {
+    priceEuros: 139,
+    conversations: 1000,
+    priceId: 'price_1SeWmVHTEWXeEltkZP7ZY9So',
   },
 } as const;
 
