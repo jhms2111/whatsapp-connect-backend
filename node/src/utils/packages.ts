@@ -11,32 +11,32 @@ export type BasePkg = {
 
 export const PACKAGES = {
   whatsapp: {
-    29: {
-      priceEuros: 0.50,
-      conversations: 200,
-      priceId: 'price_1SYe4THTEWXeEltkiANpOD6h',
-      mode: 'subscription',
-    },
-    59: {
-      priceEuros: 0.55,
-      conversations: 500,
-      priceId: 'price_1SZlPlHTEWXeEltk17NAmKGs',
-      mode: 'subscription',
-    },
-    99: {
-      priceEuros: 0.50,
+    589: {
+      priceEuros: 589,
       conversations: 1250,
-      priceId: 'price_1SYe4THTEWXeEltkiANpOD6h',
+      priceId: 'price_1SeWq4HTEWXeEltklo3ArWDk',
+      mode: 'subscription',
+    },
+    349: {
+      priceEuros: 349,
+      conversations: 500,
+      priceId: 'price_1SeWpIHTEWXeEltktFbqDr6S',
+      mode: 'subscription',
+    },
+    169: {
+      priceEuros: 169,
+      conversations: 200,
+      priceId: 'price_1SeWoeHTEWXeEltkYBJNd484',
       mode: 'subscription',
     },
   } as const,
 
   webchat: {
-    // Plano 9 — ainda usando price antigo
+    // Plano 49 — ainda usando price antigo
     49: {
       priceEuros: 49,
       conversations: 200,
-      priceId: 'price_1SeWiZHTEWXeEltkVYFVqYkU',
+      priceId: 'price_1SeXIFHTEWXeEltkShbBgUoP',
       mode: 'subscription',
     },
 

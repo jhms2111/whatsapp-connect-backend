@@ -80,7 +80,7 @@ router.post('/billing/webchat/checkout', async (req: Request, res: Response) => 
       mode: 'payment',
       line_items: [{ price: pkg.priceId, quantity: 1 }],
       success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=webchat`,
-      cancel_url:  `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages-webchat?cancel=1`,
+      cancel_url:  `${process.env.FRONTEND_URL || 'http://localhost:3000'}/webchat-packages?cancel=1`,
       metadata: {
         username: u.username,
         channel: 'webchat',
