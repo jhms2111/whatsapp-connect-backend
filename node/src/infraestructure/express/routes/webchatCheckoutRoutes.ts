@@ -41,7 +41,7 @@ router.post('/webchat/checkout-session', async (req: Request, res: Response) => 
       mode: 'payment',
       line_items: [{ price: pkg.priceId, quantity: 1 }],
       success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=webchat`,
-      cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/packages-webchat?cancel=1`,
+      cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/webchat-packages?cancel=1`,
       metadata: {
         username,
         channel: 'webchat',                 // <- para o webhook diferenciar
