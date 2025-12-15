@@ -3,14 +3,10 @@ import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import WebchatQuota, { IWebchatQuota } from '../../mongo/models/webchatQuotaModel';
 import { WEBCHAT_PACKAGES } from '../../../utils/webchatPackages';
+import { PACKAGES } from '../../../utils/packages';
 
 const router = express.Router();
 
-/**
- * Modo seguro:
- * - Se as envs não estiverem definidas, NÃO lança erro (evita crash em dev).
- * - Apenas registra aviso e atende o webhook com 200 para o Stripe não ficar reentregando em dev.
- */
 const STRIPE_SECRET_KEY_WEBCHAT = process.env.STRIPE_SECRET_KEY_WEBCHAT || '';
 const STRIPE_WEBHOOK_SECRET_WEBCHAT = process.env.STRIPE_WEBHOOK_SECRET_WEBCHAT || '';
 const DISABLE_VERIFY = process.env.DISABLE_STRIPE_SIG_VERIFY_WEBCHAT === 'true';
@@ -49,6 +45,27 @@ function normalizePurchaseIdFromSubscription(sub: Stripe.Subscription): string {
     (typeof sub.latest_invoice === 'string' ? sub.latest_invoice : (sub.latest_invoice as any)?.id) ||
     null;
   return latestInv || sub.id;
+}
+
+function getPriceIdFromSubscription(sub: Stripe.Subscription): string | null {
+  const firstItem = sub.items?.data?.[0];
+  if (!firstItem) return null;
+
+  const priceAny = firstItem.price as any;
+  const priceId =
+    (typeof firstItem.price === 'string' ? firstItem.price : priceAny?.id) || null;
+
+  return priceId;
+}
+
+function inferWebchatPackageTypeFromPriceId(priceId: string | null): string | null {
+  if (!priceId) return null;
+
+  const entries = Object.entries(PACKAGES.webchat) as [string, { priceId: string }][];
+  for (const [pkgType, pkg] of entries) {
+    if (pkg.priceId === priceId) return pkgType;
+  }
+  return null;
 }
 
 /** Core: ativa/renova pacote WebChat em WebchatQuota */
@@ -126,9 +143,7 @@ async function activateWebchatPackage(
   current.updatedAt = new Date();
   await current.save();
 
-  console.log(
-    `✅ [webchat ${source}] Período ativo: somado +${pacote.conversations} conv. e reiniciado p/ ${u}`
-  );
+  console.log(`✅ [webchat ${source}] Período ativo: somado +${pacote.conversations} e reiniciado p/ ${u}`);
   console.log('📄 Estado:', {
     username: current.username,
     periodStart: current.periodStart,
@@ -143,6 +158,69 @@ async function activateWebchatPackage(
 }
 
 /**
+ * Resolve (username, packageType) para eventos de INVOICE, sem depender só de metadata.
+ * Ordem:
+ * 1) subscription.metadata
+ * 2) invoice.metadata
+ * 3) Mongo via stripeSubscriptionId
+ * 4) inferir packageType pelo priceId da subscription (PACKAGES.webchat)
+ */
+async function resolveWebchatIdentityFromInvoice(invoiceAny: any): Promise<{
+  username?: string;
+  packageType?: string;
+  subscriptionId?: string;
+}> {
+  const subscriptionId: string | undefined =
+    (typeof invoiceAny.subscription === 'string'
+      ? invoiceAny.subscription
+      : invoiceAny.subscription?.id) ??
+    invoiceAny.subscription_details?.subscription ??
+    invoiceAny.lines?.data?.find((li: any) => li.subscription)?.subscription;
+
+  let username: string | undefined;
+  let packageType: string | undefined;
+
+  // tentativa 1: subscription.metadata
+  let sub: Stripe.Subscription | null = null;
+  if (stripe && subscriptionId) {
+    try {
+      sub = await stripe.subscriptions.retrieve(subscriptionId);
+      const md = sub.metadata || {};
+      username = (md.username as any) || username;
+      packageType = (md.packageType as any) || packageType;
+    } catch (e) {
+      console.error('[webchat webhook] Falha ao recuperar subscription:', e);
+    }
+  }
+
+  // tentativa 2: invoice.metadata
+  const invMd = (invoiceAny.metadata as any) || {};
+  username = username || invMd.username;
+  packageType = packageType || invMd.packageType;
+
+  // tentativa 3: Mongo por stripeSubscriptionId
+  if ((!username || !packageType) && subscriptionId) {
+    const quota = await WebchatQuota.findOne({ stripeSubscriptionId: subscriptionId }).exec();
+    if (quota) {
+      username = username || quota.username;
+      // se o quota já sabe o packageType, usa
+      if (quota.packageType != null) {
+        packageType = packageType || String(quota.packageType);
+      }
+    }
+  }
+
+  // tentativa 4: inferir packageType pelo priceId da subscription (se sub existe)
+  if (!packageType && sub) {
+    const priceId = getPriceIdFromSubscription(sub);
+    const inferred = inferWebchatPackageTypeFromPriceId(priceId);
+    if (inferred) packageType = inferred;
+  }
+
+  return { username, packageType, subscriptionId };
+}
+
+/**
  * Rota do webhook do Stripe para o WebChat.
  * OBS: precisa ser montada ANTES de express.json() e usando express.raw().
  */
@@ -151,7 +229,6 @@ router.post(
   express.raw({ type: 'application/json' }),
   async (req: Request, res: Response) => {
     try {
-      // Falta de configuração => não crasha, apenas responde 200
       if (!stripe || !STRIPE_WEBHOOK_SECRET_WEBCHAT) {
         console.warn('[webchat webhook] Stripe desabilitado: variáveis de ambiente ausentes.');
         return res.status(200).send('WEBCHAT_WEBHOOK_DISABLED');
@@ -177,7 +254,13 @@ router.post(
           const session = event.data.object as Stripe.Checkout.Session;
           const md = session.metadata || {};
           const normalizedId = normalizePurchaseIdFromSession(session);
-          await activateWebchatPackage(md.username as any, md.packageType as any, 'checkout.session.completed', normalizedId);
+
+          await activateWebchatPackage(
+            md.username as any,
+            md.packageType as any,
+            'checkout.session.completed',
+            normalizedId
+          );
           break;
         }
 
@@ -185,29 +268,29 @@ router.post(
         case 'invoice.payment_succeeded':
         case 'invoice_payment.paid': {
           const invoiceAny: any = event.data.object;
+          const normalizedId = normalizePurchaseIdFromInvoice(invoiceAny);
 
-          let subId: string | undefined =
-            (typeof invoiceAny.subscription === 'string'
-              ? invoiceAny.subscription
-              : invoiceAny.subscription?.id) ??
-            invoiceAny.subscription_details?.subscription ??
-            invoiceAny.lines?.data?.find((li: any) => li.subscription)?.subscription;
+          const resolved = await resolveWebchatIdentityFromInvoice(invoiceAny);
 
-          let md: Record<string, string | undefined> = {};
-          if (subId) {
-            try {
-              const subscription = await stripe.subscriptions.retrieve(subId);
-              md = subscription.metadata || {};
-            } catch (e) {
-              console.error('[webchat webhook] Falha ao recuperar subscription:', e);
-              md = (invoiceAny.metadata as any) || {};
-            }
-          } else {
-            md = (invoiceAny.metadata as any) || {};
+          if (!resolved.username || !resolved.packageType) {
+            console.warn(
+              `❌ [webchat] Metadata/pacote inválido (${event.type}->resolved):`,
+              {
+                username: resolved.username,
+                packageType: resolved.packageType,
+                subscriptionId: resolved.subscriptionId,
+                invoiceId: invoiceAny?.id,
+              }
+            );
+            break;
           }
 
-          const normalizedId = normalizePurchaseIdFromInvoice(invoiceAny);
-          await activateWebchatPackage(md.username as any, md.packageType as any, `${event.type}->normalized`, normalizedId);
+          await activateWebchatPackage(
+            resolved.username,
+            resolved.packageType,
+            `${event.type}->resolved`,
+            normalizedId
+          );
           break;
         }
 
