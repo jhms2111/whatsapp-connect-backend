@@ -46,7 +46,7 @@ router.post('/billing/checkout', async (req: Request, res: Response) => {
       mode,
       line_items: [{ price: pkg.priceId, quantity: 1 }],
       success_url: `${FRONTEND_URL}/success?ch=${channel}`,
-      cancel_url: `${FRONTEND_URL}/packages?ch=${channel}`,
+      cancel_url: `${FRONTEND_URL}/dashboard?ch=${channel}`,
       metadata: {
         channel,                 // <- fundamental para o webhook saber onde creditar
         username,
