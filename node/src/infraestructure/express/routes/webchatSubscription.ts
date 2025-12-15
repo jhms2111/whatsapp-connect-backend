@@ -31,7 +31,6 @@ function getLatestInvoiceIdFromSub(sub: Stripe.Subscription): string | null {
 }
 
 // Tipagem auxiliar: algumas versões do SDK não tipam `payment_intent` em Invoice.
-// Com expand, ele existe (string | PaymentIntent | null).
 type InvoiceWithPI = Stripe.Invoice & {
   payment_intent?: Stripe.PaymentIntent | string | null;
 };
@@ -51,12 +50,10 @@ async function finalizeAndPayLatestInvoice(sub: Stripe.Subscription): Promise<{
     return { invoice: null, paymentIntent: null, requiresAction: false };
   }
 
-  // 1) Busca invoice (com PI expandido)
   let invoice = (await stripe.invoices.retrieve(latestInvoiceId, {
     expand: ['payment_intent'],
   })) as unknown as InvoiceWithPI;
 
-  // 2) Se a invoice estiver draft, precisa finalizar antes de pagar
   if (invoice.status === 'draft') {
     invoice = (await stripe.invoices.finalizeInvoice(latestInvoiceId, {
       expand: ['payment_intent'],
@@ -64,15 +61,12 @@ async function finalizeAndPayLatestInvoice(sub: Stripe.Subscription): Promise<{
   }
 
   const piRaw = invoice.payment_intent ?? null;
-  const pi =
-    piRaw && typeof piRaw !== 'string' ? (piRaw as Stripe.PaymentIntent) : null;
+  const pi = piRaw && typeof piRaw !== 'string' ? (piRaw as Stripe.PaymentIntent) : null;
 
-  // 3) Se o PI requer ação/método, devolve pro front confirmar/atualizar
   if (pi && (pi.status === 'requires_action' || pi.status === 'requires_payment_method')) {
     return { invoice, paymentIntent: pi, requiresAction: true };
   }
 
-  // 4) Se está open, tenta cobrar agora
   if (invoice.status === 'open') {
     invoice = (await stripe.invoices.pay(latestInvoiceId, {
       off_session: true,
@@ -81,15 +75,85 @@ async function finalizeAndPayLatestInvoice(sub: Stripe.Subscription): Promise<{
   }
 
   const piRaw2 = invoice.payment_intent ?? null;
-  const pi2 =
-    piRaw2 && typeof piRaw2 !== 'string' ? (piRaw2 as Stripe.PaymentIntent) : null;
+  const pi2 = piRaw2 && typeof piRaw2 !== 'string' ? (piRaw2 as Stripe.PaymentIntent) : null;
 
   return { invoice, paymentIntent: pi2, requiresAction: false };
 }
 
 /**
+ * ✅ APLICA CRÉDITOS IMEDIATAMENTE (mesma ideia do seu webhook)
+ */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PERIOD_MS = 30 * DAY_MS;
+
+function addPeriod(from: Date = new Date()) {
+  return new Date(from.getTime() + PERIOD_MS);
+}
+
+function isExpired(end?: Date | string | null) {
+  if (!end) return true;
+  const d = new Date(end);
+  return Number.isNaN(d.getTime()) || Date.now() > d.getTime();
+}
+
+async function applyWebchatCreditsNow(params: {
+  username: string;
+  packageType: number;
+  purchaseId: string; // invoice.id
+}) {
+  const { username, packageType, purchaseId } = params;
+
+  const pkg = getPackage('webchat', packageType);
+  if (!pkg) throw new Error('Pacote inválido para crédito.');
+
+  const now = new Date();
+  const newStart = now;
+  const newEnd = addPeriod(now);
+
+  const current = (await WebchatQuota.findOne({ username }).exec()) as IWebchatQuota | null;
+
+  // idempotência
+  if (current?.lastStripeCheckoutId && current.lastStripeCheckoutId === purchaseId) {
+    return;
+  }
+
+  // Sem quota atual ou expirada => reset total
+  if (!current || isExpired((current as any).periodEnd)) {
+    await WebchatQuota.findOneAndUpdate(
+      { username },
+      {
+        $setOnInsert: { username, createdAt: new Date() },
+        $set: {
+          packageType,
+          totalConversations: pkg.conversations,
+          usedCharacters: 0,
+          lastStripeCheckoutId: purchaseId,
+          coins: pkg.conversations,
+          coinsExpiresAt: newEnd,
+          periodStart: newStart,
+          periodEnd: newEnd,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+    return;
+  }
+
+  // Período ativo => soma e reinicia período
+  (current as any).totalConversations = ((current as any).totalConversations || 0) + pkg.conversations;
+  (current as any).coins = ((current as any).coins || 0) + pkg.conversations;
+  (current as any).periodStart = newStart;
+  (current as any).periodEnd = newEnd;
+  (current as any).coinsExpiresAt = newEnd;
+  (current as any).packageType = packageType;
+  (current as any).lastStripeCheckoutId = purchaseId;
+  (current as any).updatedAt = new Date();
+  await current.save();
+}
+
+/**
  * POST /api/billing/webchat/cancel
- * Cancela no fim do período (mantido)
  */
 router.post('/billing/webchat/cancel', express.json(), async (req: Request, res: Response) => {
   try {
@@ -105,7 +169,6 @@ router.post('/billing/webchat/cancel', express.json(), async (req: Request, res:
       cancel_at_period_end: true,
     });
 
-    // Mantive para não quebrar seu comportamento atual
     quota.packageType = null;
     await quota.save();
 
@@ -123,7 +186,7 @@ router.post('/billing/webchat/cancel', express.json(), async (req: Request, res:
 
 /**
  * POST /api/billing/webchat/change-plan
- * Troca plano e cobra IMEDIATAMENTE (reinicia ciclo agora)
+ * Troca plano + cobra agora + aplica créditos agora
  */
 router.post('/billing/webchat/change-plan', express.json(), async (req: Request, res: Response) => {
   try {
@@ -146,31 +209,24 @@ router.post('/billing/webchat/change-plan', express.json(), async (req: Request,
     const pkg = getPackage('webchat', pkgNumber);
     if (!pkg) return res.status(400).json({ error: 'Pacote inválido.' });
 
-    // 1) Recupera a subscription pra pegar o item
     const subBefore = await stripe.subscriptions.retrieve(quota.stripeSubscriptionId);
     const item = getFirstItem(subBefore);
     if (!item) return res.status(500).json({ error: 'Subscription sem items.' });
 
-    // 2) Atualiza o price e força ciclo agora + proration
     const updatedSub = await stripe.subscriptions.update(quota.stripeSubscriptionId, {
       cancel_at_period_end: false,
       billing_cycle_anchor: 'now',
       proration_behavior: 'create_prorations',
-
       payment_behavior: 'default_incomplete',
       items: [{ id: item.id, price: pkg.priceId }],
-
-      // 🔥 metadata p/ webhook (resolve "undefined" no invoice.payment_succeeded)
       metadata: {
         username,
         channel: 'webchat',
         packageType: String(pkgNumber),
       },
-
       expand: ['latest_invoice.payment_intent'],
     });
 
-    // 3) Finaliza e paga invoice (ou retorna requiresAction)
     const payResult = await finalizeAndPayLatestInvoice(updatedSub);
 
     if (payResult.requiresAction) {
@@ -183,23 +239,30 @@ router.post('/billing/webchat/change-plan', express.json(), async (req: Request,
       });
     }
 
-    if (!payResult.invoice) {
-      throw new Error('Não foi possível localizar latest_invoice após trocar plano.');
-    }
+    if (!payResult.invoice) throw new Error('Não foi possível localizar latest_invoice após trocar plano.');
 
     if (payResult.invoice.status !== 'paid') {
       const piStatus = payResult.paymentIntent?.status ? ` PI=${payResult.paymentIntent.status}` : '';
       throw new Error(`Invoice não ficou paid. status=${payResult.invoice.status}.${piStatus}`);
     }
 
-    // 4) Só depois de pago, grava o plano no Mongo
+    const purchaseId = payResult.invoice.id;
+    if (!purchaseId) throw new Error('Invoice sem id (purchaseId) — não é possível aplicar créditos.');
+
+    await applyWebchatCreditsNow({
+      username,
+      packageType: pkgNumber,
+      purchaseId,
+    });
+
     quota.packageType = pkgNumber;
+    (quota as any).updatedAt = new Date();
     await quota.save();
 
     return res.json({
       success: true,
       requiresAction: false,
-      message: 'Plano alterado e cobrado imediatamente.',
+      message: 'Plano alterado, cobrado e créditos aplicados imediatamente.',
       stripeSubscriptionStatus: updatedSub.status,
     });
   } catch (err: any) {
@@ -211,8 +274,7 @@ router.post('/billing/webchat/change-plan', express.json(), async (req: Request,
 
 /**
  * POST /api/billing/webchat/renew-now
- * Renova o MESMO plano e reinicia ciclo AGORA cobrando na hora
- * - proration_behavior: 'none' => cobra o mês inteiro agora, sem crédito do período restante
+ * Renova o mesmo plano + cobra agora + aplica créditos agora
  */
 router.post('/billing/webchat/renew-now', express.json(), async (req: Request, res: Response) => {
   try {
@@ -230,21 +292,22 @@ router.post('/billing/webchat/renew-now', express.json(), async (req: Request, r
 
     const priceId = typeof item.price === 'string' ? item.price : (item.price as any).id;
 
+    const currentPkgType = typeof quota.packageType === 'number' ? quota.packageType : null;
+    if (!currentPkgType) {
+      return res.status(400).json({ error: 'packageType atual indefinido para renovar.' });
+    }
+
     const updatedSub = await stripe.subscriptions.update(quota.stripeSubscriptionId, {
       cancel_at_period_end: false,
       billing_cycle_anchor: 'now',
       proration_behavior: 'none',
-
       payment_behavior: 'default_incomplete',
       items: [{ id: item.id, price: priceId }],
-
-      // 🔥 metadata p/ webhook
       metadata: {
         username,
         channel: 'webchat',
-        packageType: String(quota.packageType ?? ''), // mantém o atual (se existir)
+        packageType: String(currentPkgType),
       },
-
       expand: ['latest_invoice.payment_intent'],
     });
 
@@ -260,22 +323,28 @@ router.post('/billing/webchat/renew-now', express.json(), async (req: Request, r
       });
     }
 
-    if (!payResult.invoice) {
-      throw new Error('Não foi possível localizar latest_invoice após renovar.');
-    }
+    if (!payResult.invoice) throw new Error('Não foi possível localizar latest_invoice após renovar.');
 
     if (payResult.invoice.status !== 'paid') {
       const piStatus = payResult.paymentIntent?.status ? ` PI=${payResult.paymentIntent.status}` : '';
       throw new Error(`Invoice não ficou paid. status=${payResult.invoice.status}.${piStatus}`);
     }
 
-    // Se você quiser resetar quota mensal aqui, faça aqui (depende do seu modelo).
+    const purchaseId = payResult.invoice.id;
+    if (!purchaseId) throw new Error('Invoice sem id (purchaseId) — não é possível aplicar créditos.');
+
+    await applyWebchatCreditsNow({
+      username,
+      packageType: currentPkgType,
+      purchaseId,
+    });
+
     await quota.save();
 
     return res.json({
       success: true,
       requiresAction: false,
-      message: 'Renovação imediata realizada e cobrada com sucesso.',
+      message: 'Renovação realizada, cobrada e créditos aplicados imediatamente.',
       stripeSubscriptionStatus: updatedSub.status,
     });
   } catch (err: any) {
