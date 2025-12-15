@@ -1,5 +1,4 @@
-//webchatCheckoutRoutes.ts
-
+// webchatCheckoutRoutes.ts
 import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
@@ -12,11 +11,17 @@ if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('STRIPE_SECRET_KEY não configurada');
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string /* , { apiVersion: '2023-10-16' } */);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 const router = Router();
 
+const FRONT = process.env.FRONTEND_URL || 'http://localhost:3000';
+const WEBCHAT_SUCCESS = `${FRONT}/success?ch=webchat`;
+const WEBCHAT_CANCEL = `${FRONT}/webchat-packages?cancel=1`;
+
+console.log('WEBCHAT ROUTES VERSION: cancel ->', WEBCHAT_CANCEL);
+
 /**
- * Alias 1 (mantém seu endpoint existente):
+ * Alias 1:
  * POST /api/webchat/checkout-session
  * body: { packageType: number, username: string, successUrl?: string, cancelUrl?: string }
  */
@@ -37,14 +42,20 @@ router.post('/webchat/checkout-session', async (req: Request, res: Response) => 
 
     const pkg = WEBCHAT_PACKAGES[key];
 
+    const finalSuccess = successUrl || WEBCHAT_SUCCESS;
+    const finalCancel = cancelUrl || WEBCHAT_CANCEL;
+
+    console.log('[WEBCHAT CHECKOUT-SESSION URLS]', { finalSuccess, finalCancel });
+    console.log('[WEBCHAT CHECKOUT-SESSION BODY cancelUrl]', cancelUrl);
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [{ price: pkg.priceId, quantity: 1 }],
-      success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=webchat`,
-      cancel_url:  cancelUrl  || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/webchat-packages?cancel=1`,
+      success_url: finalSuccess,
+      cancel_url: finalCancel,
       metadata: {
         username,
-        channel: 'webchat',                 // <- para o webhook diferenciar
+        channel: 'webchat',
         packageType: String(packageType),
       },
       allow_promotion_codes: true,
@@ -58,7 +69,7 @@ router.post('/webchat/checkout-session', async (req: Request, res: Response) => 
 });
 
 /**
- * Alias 2 (o que o seu front chama):
+ * Alias 2:
  * POST /api/billing/webchat/checkout
  * body: { packageType: number }
  * Requer JWT (usa req.user.username)
@@ -76,11 +87,13 @@ router.post('/billing/webchat/checkout', async (req: Request, res: Response) => 
 
     const pkg = WEBCHAT_PACKAGES[key];
 
+    console.log('[WEBCHAT CHECKOUT URLS]', { WEBCHAT_SUCCESS, WEBCHAT_CANCEL });
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [{ price: pkg.priceId, quantity: 1 }],
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/success?ch=webchat`,
-      cancel_url:  `${process.env.FRONTEND_URL || 'http://localhost:3000'}/webchat-packages?cancel=1`,
+      success_url: WEBCHAT_SUCCESS,
+      cancel_url: WEBCHAT_CANCEL,
       metadata: {
         username: u.username,
         channel: 'webchat',
@@ -98,7 +111,6 @@ router.post('/billing/webchat/checkout', async (req: Request, res: Response) => 
 
 /**
  * GET /api/webchat/quota
- * Retorna o saldo do WebChat do usuário logado
  */
 router.get('/webchat/quota', async (req: Request, res: Response) => {
   try {
