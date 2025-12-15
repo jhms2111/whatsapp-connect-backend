@@ -4,7 +4,7 @@ export const WEBCHAT_PACKAGES = {
   49: {
     priceEuros: 49,
     conversations: 200,
-    priceId: 'price_1SeXIFHTEWXeEltkShbBgUoP', // substitua pelos seus IDs reais do Stripe
+    priceId: 'price_1SeWiZHTEWXeEltkVYFVqYkU', // substitua pelos seus IDs reais do Stripe
   },
   99: {
     priceEuros: 99,
