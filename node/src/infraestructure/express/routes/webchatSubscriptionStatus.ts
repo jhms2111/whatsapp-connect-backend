@@ -11,8 +11,7 @@ const STRIPE_SECRET_KEY_WEBCHAT =
 
 const stripe = STRIPE_SECRET_KEY_WEBCHAT ? new Stripe(STRIPE_SECRET_KEY_WEBCHAT) : null;
 
-// ✅ Tipagem auxiliar (algumas versões do SDK tipam Subscription como Response<Subscription> e
-// não expõem current_period_start/end, mesmo existindo no objeto real).
+// Tipagem auxiliar (por causa de typings do SDK em algumas versões)
 type SubscriptionWithPeriods = Stripe.Subscription & {
   current_period_start?: number;
   current_period_end?: number;
@@ -22,11 +21,12 @@ function getPriceIdFromSubscription(sub: Stripe.Subscription): string | null {
   const firstItem = sub.items?.data?.[0];
   if (!firstItem) return null;
 
-  const priceAny = firstItem.price as any;
-  const priceId =
-    (typeof firstItem.price === 'string' ? firstItem.price : priceAny?.id) || null;
+  // pode vir string (id) ou objeto Price
+  const p: any = firstItem.price;
+  if (typeof p === 'string') return p;
+  if (p?.id) return String(p.id);
 
-  return priceId;
+  return null;
 }
 
 /**
@@ -59,8 +59,9 @@ router.get('/webchat/status', async (req: Request, res: Response) => {
     let packageType: number | null =
       typeof quota.packageType === 'number' ? quota.packageType : null;
 
-    let currentPeriodStart: string | null = null;
-    let currentPeriodEnd: string | null = null;
+    // ✅ unix seconds
+    let currentPeriodStart: number | null = null;
+    let currentPeriodEnd: number | null = null;
 
     if (quota.stripeSubscriptionId) {
       subscriptionStatus = 'active';
@@ -69,18 +70,17 @@ router.get('/webchat/status', async (req: Request, res: Response) => {
         try {
           const raw = await stripe.subscriptions.retrieve(quota.stripeSubscriptionId);
 
-          // 👇 força um tipo que expõe os campos
           const sub = raw as unknown as SubscriptionWithPeriods;
 
           subscriptionStatus = sub.status;
           cancelAtPeriodEnd = !!sub.cancel_at_period_end;
 
-          // ✅ pega as datas (UNIX seconds -> ISO string)
+          // ✅ pega as datas direto como unix seconds
           if (typeof sub.current_period_start === 'number') {
-            currentPeriodStart = new Date(sub.current_period_start * 1000).toISOString();
+            currentPeriodStart = sub.current_period_start;
           }
           if (typeof sub.current_period_end === 'number') {
-            currentPeriodEnd = new Date(sub.current_period_end * 1000).toISOString();
+            currentPeriodEnd = sub.current_period_end;
           }
 
           // tenta deduzir packageType pelo priceId
@@ -97,6 +97,8 @@ router.get('/webchat/status', async (req: Request, res: Response) => {
         } catch (e) {
           console.error('[webchat status] erro ao consultar subscription no Stripe:', e);
         }
+      } else {
+        console.error('[webchat status] Stripe client não inicializado: STRIPE_SECRET_KEY_WEBCHAT/STRIPE_SECRET_KEY vazia.');
       }
     }
 

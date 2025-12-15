@@ -18,9 +18,9 @@ export const PACKAGES = {
       mode: 'subscription',
     },
     59: {
-      priceEuros: 0.50,
+      priceEuros: 0.55,
       conversations: 500,
-      priceId: 'price_1SYe4THTEWXeEltkiANpOD6h',
+      priceId: 'price_1SZlPlHTEWXeEltk17NAmKGs',
       mode: 'subscription',
     },
     99: {
