@@ -7,61 +7,33 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN!
 );
 
-/** =================== Normalização WhatsApp =================== */
-function asWhatsapp(input: string): string {
-  const s = String(input ?? '').trim();
-  if (!s) return 'whatsapp:+';
-
-  // já está no formato whatsapp:
-  if (s.startsWith('whatsapp:')) {
-    const rest = s.slice('whatsapp:'.length).trim();
-    // whatsapp:+E164
-    if (rest.startsWith('+')) return `whatsapp:${rest}`;
-    // whatsapp:551199... => converte pra whatsapp:+551199...
-    return `whatsapp:+${rest.replace(/\D/g, '')}`;
-  }
-
-  // veio +E164
-  if (s.startsWith('+')) return `whatsapp:${s}`;
-
-  // veio "cru" (só dígitos ou com lixo)
-  return `whatsapp:+${s.replace(/\D/g, '')}`;
-}
-/** ============================================================= */
-
 /**
- * Envia uma mensagem via Twilio (WhatsApp)
- *
+ * Envia uma mensagem via Twilio com os dados fornecidos
+ * 
  * @param message - O conteúdo da mensagem
- * @param to - Destino (pode ser: "whatsapp:+E164", "+E164" ou "E164 sem +")
- * @param from - Remetente Twilio (pode ser: "whatsapp:+E164", "+E164" ou "E164 sem +")
+ * @param roomId - Número do cliente (ex: +55999999999)
+ * @param fromNumber - Número do Twilio do remetente (ex: whatsapp:+14155238886)
  * @param mediaUrl - (opcional) URL de mídia a ser enviada
  */
 export async function sendMessageToTwilio(
   message: string,
-  to: string,
-  from: string,
+  roomId: string,
+  fromNumber: string,
   mediaUrl?: string
 ) {
   try {
-    const toNumber = asWhatsapp(to);
-    const fromNumber = asWhatsapp(from);
-    const mediaUrls = mediaUrl ? [mediaUrl] : undefined;
-
-    // 🔎 debug: isso ajuda MUITO a ver formato final
-    console.log('[Twilio sendMessageToTwilio] sending:', { toNumber, fromNumber, hasMedia: !!mediaUrl });
+    const toNumber = `whatsapp:${roomId}`;
+    const mediaUrls = mediaUrl ? [mediaUrl] : [];
 
     const msg = await client.messages.create({
       body: message,
       from: fromNumber,
       to: toNumber,
-      mediaUrl: mediaUrls,
+      mediaUrl: mediaUrls.length ? mediaUrls : undefined,
     });
 
-    console.log(`✅ Mensagem enviada via Twilio (${toNumber}) sid=${msg.sid}`);
-    return msg;
+    console.log(`✅ Mensagem enviada via Twilio (${roomId}): ${msg.sid}`);
   } catch (error) {
-    console.error(`❌ Erro ao enviar mensagem via Twilio:`, error);
-    throw error; // <-- importante: deixa o caller tratar se quiser
+    console.error(`❌ Erro ao enviar mensagem para ${roomId} via Twilio:`, error);
   }
 }
