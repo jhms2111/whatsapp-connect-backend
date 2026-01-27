@@ -33,6 +33,30 @@ export const uploadDir = path.resolve(__dirname, '..', '..', '..', '..', 'upload
 
 const CHARS_PER_CONVERSATION = 500;
 
+/** =================== Normalização WhatsApp =================== */
+function asWhatsapp(input: string): string {
+  const s = String(input ?? '').trim();
+  if (!s) return 'whatsapp:+';
+
+  // já está no formato whatsapp:
+  if (s.startsWith('whatsapp:')) {
+    const rest = s.slice('whatsapp:'.length).trim();
+    if (rest.startsWith('+')) return `whatsapp:${rest}`;
+    return `whatsapp:+${rest.replace(/\D/g, '')}`;
+  }
+
+  // veio com +
+  if (s.startsWith('+')) return `whatsapp:${s}`;
+
+  // veio "cru" (só dígitos ou com lixo)
+  return `whatsapp:+${s.replace(/\D/g, '')}`;
+}
+
+function cleanDigits(input: string): string {
+  return String(input ?? '').replace(/^whatsapp:/, '').replace(/\D/g, '');
+}
+/** ============================================================= */
+
 /** ========= Helpers CatalogItem -> LLMProduct ========= */
 function pickStr(values: Record<string, any>, keys: string[], fallback = '') {
   for (const k of keys) {
@@ -104,13 +128,20 @@ async function getOwnerFlags(username: string): Promise<{ blocked: boolean; bots
 export const handleTwilioWebhook = async (req: Request, res: Response, io: IOServer): Promise<void> => {
   const { From, To, Body, MediaUrl0, MediaContentType0 } = req.body;
 
-  const fromClean = String(From).replace('whatsapp:', '').replace(/\W/g, '');
-  const toClean = String(To).replace('whatsapp:', '').replace(/\W/g, '');
+  // ✅ Use valores normalizados p/ envio (Twilio exige whatsapp:+E164)
+  const toWp = asWhatsapp(From);   // enviar PARA quem mandou
+  const fromWp = asWhatsapp(To);   // enviar DO número Twilio (o que recebeu)
+
+  // ✅ Use versões limpas apenas para IDs internos
+  const fromClean = cleanDigits(From);
+  const toClean = cleanDigits(To);
+
   const roomId = `${fromClean}___${toClean}`;
   const sender = `Socket-twilio-${roomId}`;
 
   try {
-    const rawTo  = String(To);
+    // ✅ Autorização do número Twilio (usando variações)
+    const rawTo = String(To);
     const toBare = rawTo.replace(/^whatsapp:/, '');
     const withWp = `whatsapp:${toBare}`;
 
@@ -122,8 +153,10 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
     }
     const billingUsername = twilioEntry.owner;
 
+    // Follow-up
     try {
-      const cli = await Cliente.findOne({ username: billingUsername }, { followUpEnabled: 1, followUpDelayMinutes: 1 }).lean<ICliente>();
+      const cli = await Cliente.findOne({ username: billingUsername }, { followUpEnabled: 1, followUpDelayMinutes: 1 })
+        .lean<ICliente>();
       if (cli?.followUpEnabled) {
         const fuDelay = (cli.followUpDelayMinutes ?? 60) || 60;
         const due = new Date(Date.now() + fuDelay * 60 * 1000);
@@ -176,7 +209,7 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
 
     const bot = await Bot.findOne({ owner: billingUsername })
       .populate<{ product: IProduct | IProduct[] }>('product')
-      .populate('catalogItems'); // 👈 essencial
+      .populate('catalogItems');
 
     if (!bot) {
       await persistIncoming();
@@ -214,7 +247,10 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
 
     // CatalogItems
     const catalogItemsArr = Array.isArray((b as any).catalogItems) ? (b as any).catalogItems : [];
-    const catalogItemIds = catalogItemsArr.map((ci: any) => (typeof ci === 'string' ? ci : ci?._id)).filter(Boolean);
+    const catalogItemIds = catalogItemsArr
+      .map((ci: any) => (typeof ci === 'string' ? ci : ci?._id))
+      .filter(Boolean);
+
     let catalogItemsRaw: any[] = [];
     if (catalogItemsArr.some((ci: any) => typeof ci === 'string')) {
       catalogItemsRaw = await CatalogItem.find({ _id: { $in: catalogItemIds } }).lean();
@@ -278,21 +314,27 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
       return (q.usedCharacters || 0) < maxChars;
     }
 
+    // Persist incoming texto
     if (Body) {
       const canReplyNow = await hasRemainingChars(billingUsername);
       if (!canReplyNow) {
         const aviso = 'Seu pacote de conversas acabou. Compre um novo para continuar. 😊';
-        await sendMessageToTwilio(aviso, fromClean, To);
+
+        // ✅ CORRIGIDO: to=From, from=To (ambos whatsapp:)
+        await sendMessageToTwilio(aviso, toWp, fromWp);
+
         await saveMessage(roomId, 'Bot', aviso, true);
         res.status(200).send('Package exhausted');
         return;
       }
       try { await spendCharacters(billingUsername, Body.length || 0); } catch (e) { console.error('[BILLING] debit fail', e); }
+
       await saveMessage(roomId, sender, Body, true, undefined, undefined, billingUsername);
       io.to(roomId).emit('twilio message', { sender, message: Body });
       io.emit('historicalRoomUpdated', { roomId, lastMessage: Body, lastTimestamp: new Date() });
     }
 
+    // Persist incoming mídia
     if (MediaUrl0) {
       const fileName = String(MediaUrl0).split('/').pop() || 'file_0';
       const filePath = path.join(uploadDir, fileName);
@@ -316,7 +358,6 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
 
     const adapterProducts: LLMProduct[] = await selectRelevantProducts(Body);
 
-    // 🔎 DEBUG — O QUE ESTAMOS ENVIANDO AO OPENAI
     console.log('[TWILIO] calling OpenAI with:', {
       adapterProducts: adapterProducts.map((p) => ({ id: p.id, name: p.name })),
       allProductsCount: allProducts.length,
@@ -358,13 +399,19 @@ export const handleTwilioWebhook = async (req: Request, res: Response, io: IOSer
 
       if (!canStillReply) {
         const aviso = 'Seu pacote de conversas acabou. Compre um novo para continuar. 😊';
-        await sendMessageToTwilio(aviso, fromClean, To);
+
+        // ✅ CORRIGIDO
+        await sendMessageToTwilio(aviso, toWp, fromWp);
+
         await saveMessage(roomId, 'Bot', aviso, true);
         res.status(200).send('Package exhausted (post-gen)');
         return;
       }
 
-      await sendMessageToTwilio(resposta, fromClean, To);
+      // ✅ CORRIGIDO: envio WhatsApp sempre no padrão
+      console.log('[SEND TWILIO]', { to: toWp, from: fromWp });
+
+      await sendMessageToTwilio(resposta, toWp, fromWp);
       await saveMessage(roomId, 'Bot', resposta, true);
       io.to(roomId).emit('twilio message', { sender: 'Bot', message: resposta });
       io.emit('historicalRoomUpdated', { roomId, lastMessage: resposta, lastTimestamp: new Date() });
