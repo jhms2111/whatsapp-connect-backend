@@ -281,12 +281,6 @@ app.use(
   app.use('/api', whatsappSubscriptionStatus);
 
 
-  
-
-
-  // 6) Estáticos / Twilio / Uploads
-
-
   // 6) Estáticos / Twilio / Uploads
 app.set('trust proxy', true);
 
