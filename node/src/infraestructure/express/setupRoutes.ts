@@ -167,6 +167,7 @@ app.use(
   // ====== 3) ROTAS PÚBLICAS ======
   app.use('/api', registerRoutes);
   app.use('/api', verificationRoutes);
+  app.use('/api', onboardingRoutes);
   app.use('/api', userAuthRoutes);
   app.use('/api', meRoutes);           // /api/me/status
   app.use('/api', whatsappWebhook);
@@ -282,7 +283,7 @@ app.use(
 
   app.use('/api', whatsappSubscriptionStatus);
 
-  app.use('/api', onboardingRoutes);
+ 
 
 
   // 6) Estáticos / Twilio / Uploads
