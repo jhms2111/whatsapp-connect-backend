@@ -5,8 +5,8 @@ import jwt from 'jsonwebtoken';
 
 import User from '../../mongo/models/userModel';
 import OnboardingDraft from '../../mongo/models/onboardingDraftModel';
-import CatalogCollection from '../../mongo/models/CatalogCollection';
-import CatalogItem from '../../mongo/models/CatalogItem';
+import CatalogCollection from '../../mongo/models/catalogCollectionModel';
+import CatalogItem from '../../mongo/models/catalogItemModel';
 import Bot from '../../mongo/models/botModel';
 
 import { sendEmail } from '../../../utils/email';

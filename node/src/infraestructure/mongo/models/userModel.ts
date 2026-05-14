@@ -12,14 +12,14 @@ export interface IUser extends Document {
 
   emailVerified: boolean;
 
-  // Verificação antiga por link/token
+  // Fluxo antigo por link
   emailToken?: string;
   emailTokenExpiry?: Date;
 
-  // Nova verificação por código
-  emailVerificationCode?: string;
+  // Novo fluxo por código
+  emailVerificationCodeHash?: string;
   emailVerificationCodeExpiry?: Date;
-  emailVerificationAttempts?: number;
+  emailVerificationAttempts: number;
 
   resetPasswordToken?: string;
   resetPasswordExpiry?: Date;
@@ -39,9 +39,25 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
-    username: { type: String, unique: true, required: true, trim: true },
-    email: { type: String, unique: true, required: true, trim: true },
-    passwordHash: { type: String, required: true },
+    username: {
+      type: String,
+      unique: true,
+      required: true,
+      trim: true,
+    },
+
+    email: {
+      type: String,
+      unique: true,
+      required: true,
+      trim: true,
+      lowercase: true,
+    },
+
+    passwordHash: {
+      type: String,
+      required: true,
+    },
 
     role: {
       type: String,
@@ -50,19 +66,41 @@ const userSchema = new Schema<IUser>(
       required: true,
     },
 
-    emailVerified: { type: Boolean, default: false },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
 
-    // Verificação antiga por link/token
-    emailToken: { type: String },
-    emailTokenExpiry: { type: Date },
+    // Fluxo antigo por link
+    emailToken: {
+      type: String,
+    },
 
-    // Nova verificação por código
-    emailVerificationCode: { type: String },
-    emailVerificationCodeExpiry: { type: Date },
-    emailVerificationAttempts: { type: Number, default: 0 },
+    emailTokenExpiry: {
+      type: Date,
+    },
 
-    resetPasswordToken: { type: String },
-    resetPasswordExpiry: { type: Date },
+    // Novo fluxo por código
+    emailVerificationCodeHash: {
+      type: String,
+    },
+
+    emailVerificationCodeExpiry: {
+      type: Date,
+    },
+
+    emailVerificationAttempts: {
+      type: Number,
+      default: 0,
+    },
+
+    resetPasswordToken: {
+      type: String,
+    },
+
+    resetPasswordExpiry: {
+      type: Date,
+    },
 
     // Bloqueio
     status: {
@@ -71,11 +109,20 @@ const userSchema = new Schema<IUser>(
       default: 'active',
       index: true,
     },
-    blockedReason: { type: String },
-    blockedAt: { type: Date },
+
+    blockedReason: {
+      type: String,
+    },
+
+    blockedAt: {
+      type: Date,
+    },
 
     // Flag global dos bots
-    botsEnabled: { type: Boolean, default: true },
+    botsEnabled: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );
