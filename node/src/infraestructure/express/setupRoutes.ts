@@ -107,6 +107,8 @@ import whatsappSubscriptionRouter from './routes/whatsappSubscription';
 
 import whatsappSubscriptionStatus from './routes/whatsappSubscriptionStatus'
 
+import onboardingRoutes from './routes/onboardingRoutes';
+
 
 import catalogRouter from './routes/catalogRouter'
 
@@ -279,6 +281,8 @@ app.use(
   app.use('/api', whatsappSubscriptionRouter); // 👈 novo
 
   app.use('/api', whatsappSubscriptionStatus);
+
+  app.use('/api', onboardingRoutes);
 
 
   // 6) Estáticos / Twilio / Uploads

@@ -1,6 +1,7 @@
 // src/utils/email.ts
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+
 dotenv.config();
 
 interface SendEmailOptions {
@@ -13,11 +14,7 @@ interface SendEmailOptions {
 export async function sendEmail({ to, subject, text, html }: SendEmailOptions) {
   try {
     const host = process.env.SMTP_HOST || 'smtp.sendgrid.net';
-
-    // usamos a PORTA do .env, senão 587
     const port = Number(process.env.SMTP_PORT || '587');
-
-    // regra comum: 465 = secure true, outras = false
     const secure = port === 465;
 
     const user = process.env.SMTP_USER;
@@ -31,7 +28,7 @@ export async function sendEmail({ to, subject, text, html }: SendEmailOptions) {
     const transporter = nodemailer.createTransport({
       host,
       port,
-      secure,          // true se 465, false caso contrário
+      secure,
       auth: {
         user,
         pass,
