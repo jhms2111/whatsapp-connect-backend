@@ -1,4 +1,3 @@
-// src/infraestructure/express/routes/onboardingRoutes.ts
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -10,6 +9,14 @@ import CatalogItem from '../../mongo/models/catalogItemModel';
 import Bot from '../../mongo/models/botModel';
 
 import { sendEmail } from '../../../utils/email';
+
+import {
+  normalizeOnboardingAnswers,
+  getCollectionTitle,
+  buildProductDescription,
+  buildAbout,
+  buildGuidelines,
+} from '../../../utils/onboardingNormalizer';
 
 const router = Router();
 
@@ -76,103 +83,17 @@ function enkiCodeEmailTemplate({
   `;
 }
 
-function getCollectionTitle(businessType?: string) {
-  const map: Record<string, string> = {
-    restaurant: 'Cardapio',
-    clinic: 'Servicos',
-    online_store: 'Produtos',
-    services: 'Servicos',
-    real_estate: 'Imoveis',
-    school: 'Cursos',
-    beauty: 'Tratamentos',
-    other: 'Ofertas',
-  };
+function cleanProducts(products: any[]) {
+  if (!Array.isArray(products)) return [];
 
-  return map[businessType || ''] || 'Ofertas';
-}
-
-function buildProductDescription(product: any) {
-  const description = product?.description?.trim() || '';
-  const link = product?.link?.trim();
-
-  if (link) {
-    return `${description}\n\nLink: ${link}`;
-  }
-
-  return description;
-}
-
-function buildAbout({
-  answers,
-  products,
-}: {
-  answers: any;
-  products: any[];
-}) {
-  const productText =
-    products.length > 0
-      ? products
-          .map((p) => {
-            const price = p.price ? ` | Preço: ${p.price}` : '';
-            const link = p.link ? ` | Link: ${p.link}` : '';
-            return `- ${p.title}: ${p.description || ''}${price}${link}`;
-          })
-          .join('\n')
-      : 'Nenhum produto ou serviço informado.';
-
-  return `
-Tipo de negócio: ${answers.businessType || ''}
-
-Descrição do negócio:
-${answers.businessDescription || ''}
-
-Produtos ou serviços principais:
-${productText}
-
-Horários de atendimento:
-${answers.openingHours || ''}
-
-Formas de pagamento:
-${Array.isArray(answers.paymentMethods) ? answers.paymentMethods.join(', ') : answers.paymentMethods || ''}
-
-Perguntas frequentes:
-${answers.faq || ''}
-`.trim();
-}
-
-function buildGuidelines(answers: any) {
-  const languageInstruction: Record<string, string> = {
-    pt: 'Responda sempre em português, a menos que o cliente peça outro idioma.',
-    es: 'Responde siempre en español, a menos que el cliente pida otro idioma.',
-    en: 'Always reply in English unless the customer asks for another language.',
-  };
-
-  const lang = answers.language || 'pt';
-
-  return `
-Você é o assistente virtual oficial deste negócio.
-
-IDIOMA:
-- ${languageInstruction[lang] || languageInstruction.pt}
-
-OBJETIVO:
-- ${Array.isArray(answers.goal) ? answers.goal.join(', ') : answers.goal || 'Ajudar clientes com informações do negócio.'}
-
-TOM DE VOZ:
-- ${answers.tone || 'profissional e simpático'}
-
-REGRAS:
-- Seja educado, claro e humano.
-- Responda em mensagens curtas.
-- Nunca invente preços, horários, promoções, prazos ou políticas.
-- Use apenas as informações cadastradas sobre a empresa.
-- Se não souber responder, diga que precisa confirmar com a equipe.
-- Se o cliente pedir atendimento humano, encaminhe educadamente.
-- Conduza a conversa com perguntas simples.
-
-QUANDO CHAMAR UM HUMANO:
-- ${Array.isArray(answers.humanHandoff) ? answers.humanHandoff.join(', ') : answers.humanHandoff || 'Quando não souber responder ou quando o cliente pedir.'}
-`.trim();
+  return products
+    .map((product) => ({
+      title: String(product?.title || '').trim(),
+      description: String(product?.description || '').trim(),
+      price: product?.price ?? '',
+      link: String(product?.link || '').trim(),
+    }))
+    .filter((product) => product.title || product.description);
 }
 
 router.post('/onboarding/start', async (req: Request, res: Response) => {
@@ -180,19 +101,28 @@ router.post('/onboarding/start', async (req: Request, res: Response) => {
     const { username, email, password, answers, products, account } = req.body;
 
     if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Usuario, email y contraseña son obligatorios.' });
+      return res.status(400).json({
+        error: 'Usuario, email y contraseña son obligatorios.',
+      });
     }
 
     if (!answers || !account) {
-      return res.status(400).json({ error: 'Datos del onboarding incompletos.' });
+      return res.status(400).json({
+        error: 'Datos del onboarding incompletos.',
+      });
     }
 
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
+    if (String(password).length < 8) {
+      return res.status(400).json({
+        error: 'La contraseña debe tener al menos 8 caracteres.',
+      });
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanUsername = String(username).trim();
+
+    const normalizedAnswers = normalizeOnboardingAnswers(answers);
+    const normalizedProducts = cleanProducts(products);
 
     const existingByEmail = await User.findOne({ email: cleanEmail });
     const existingByUsername = await User.findOne({ username: cleanUsername });
@@ -235,10 +165,10 @@ router.post('/onboarding/start', async (req: Request, res: Response) => {
       });
     } else {
       user.username = cleanUsername;
+      user.passwordHash = await bcrypt.hash(password, 10);
       user.emailVerificationCodeHash = codeHash;
       user.emailVerificationCodeExpiry = codeExpiry();
       user.emailVerificationAttempts = 0;
-      user.passwordHash = await bcrypt.hash(password, 10);
     }
 
     await user.save();
@@ -248,9 +178,15 @@ router.post('/onboarding/start', async (req: Request, res: Response) => {
       {
         username: cleanUsername,
         email: cleanEmail,
+        businessType: normalizedAnswers.businessType || '',
         answers,
-        products: Array.isArray(products) ? products : [],
-        account,
+        normalizedAnswers,
+        products: normalizedProducts,
+        account: {
+          businessName: String(account?.businessName || '').trim(),
+          email: cleanEmail,
+          phone: String(account?.phone || '').trim(),
+        },
         status: 'pending_email',
         expiresAt: in24h(),
       },
@@ -261,7 +197,10 @@ router.post('/onboarding/start', async (req: Request, res: Response) => {
       to: cleanEmail,
       subject: 'Tu código de confirmación ENKI',
       text: `Tu código ENKI es: ${code}. Es válido por 15 minutos.`,
-      html: enkiCodeEmailTemplate({ username: cleanUsername, code }),
+      html: enkiCodeEmailTemplate({
+        username: cleanUsername,
+        code,
+      }),
     });
 
     return res.status(200).json({
@@ -270,7 +209,9 @@ router.post('/onboarding/start', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[ONBOARDING_START] error:', error);
-    return res.status(500).json({ error: 'Error al iniciar onboarding.' });
+    return res.status(500).json({
+      error: 'Error al iniciar onboarding.',
+    });
   }
 });
 
@@ -279,7 +220,9 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
     const { email, code } = req.body;
 
     if (!email || !code) {
-      return res.status(400).json({ error: 'Email y código son obligatorios.' });
+      return res.status(400).json({
+        error: 'Email y código son obligatorios.',
+      });
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
@@ -288,14 +231,18 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
     const user = await User.findOne({ email: cleanEmail });
 
     if (!user || !user.emailVerificationCodeHash) {
-      return res.status(400).json({ error: 'Código inválido o expirado.' });
+      return res.status(400).json({
+        error: 'Código inválido o expirado.',
+      });
     }
 
     if (
       !user.emailVerificationCodeExpiry ||
       user.emailVerificationCodeExpiry.getTime() < Date.now()
     ) {
-      return res.status(400).json({ error: 'Código expirado.' });
+      return res.status(400).json({
+        error: 'Código expirado.',
+      });
     }
 
     if ((user.emailVerificationAttempts || 0) >= 5) {
@@ -304,13 +251,20 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
       });
     }
 
-    const validCode = await bcrypt.compare(cleanCode, user.emailVerificationCodeHash);
+    const validCode = await bcrypt.compare(
+      cleanCode,
+      user.emailVerificationCodeHash
+    );
 
     if (!validCode) {
-      user.emailVerificationAttempts = (user.emailVerificationAttempts || 0) + 1;
+      user.emailVerificationAttempts =
+        (user.emailVerificationAttempts || 0) + 1;
+
       await user.save();
 
-      return res.status(400).json({ error: 'Código incorrecto.' });
+      return res.status(400).json({
+        error: 'Código incorrecto.',
+      });
     }
 
     const draft = await OnboardingDraft.findOne({
@@ -325,32 +279,51 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
     }
 
     const username = draft.username;
-    const answers: any = draft.answers || {};
+    const rawAnswers: any = draft.answers || {};
+    const normalized =
+      draft.normalizedAnswers && Object.keys(draft.normalizedAnswers).length > 0
+        ? draft.normalizedAnswers
+        : normalizeOnboardingAnswers(rawAnswers);
+
     const account: any = draft.account || {};
-    const rawProducts: any[] = Array.isArray(draft.products) ? draft.products : [];
+    const rawProducts: any[] = Array.isArray(draft.products)
+      ? draft.products
+      : [];
 
     const validProducts = rawProducts.filter(
-      (p) => p?.title?.trim() && p?.description?.trim()
+      (product) => product?.title?.trim() && product?.description?.trim()
     );
+
+    const existingBot = await Bot.findOne({ owner: username });
+
+    if (existingBot) {
+      return res.status(409).json({
+        error: 'Este usuario ya posee un bot creado.',
+        code: 'BOT_ALREADY_EXISTS',
+      });
+    }
 
     user.emailVerified = true;
     user.emailVerificationCodeHash = undefined;
     user.emailVerificationCodeExpiry = undefined;
     user.emailVerificationAttempts = 0;
-    await user.save();
 
-    let catalogItemIds: any[] = [];
+    await user.save();
 
     const collection = await CatalogCollection.create({
       owner: username,
-      title: getCollectionTitle(answers.businessType),
+      title: getCollectionTitle(normalized.businessType),
       fields: [],
     });
+
+    const catalogItemIds: any[] = [];
 
     if (validProducts.length > 0) {
       for (const product of validProducts) {
         const priceNumber =
-          product.price !== '' && product.price !== null && product.price !== undefined
+          product.price !== '' &&
+          product.price !== null &&
+          product.price !== undefined
             ? Number(product.price)
             : null;
 
@@ -374,9 +347,12 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
         owner: username,
         collectionId: collection._id,
         values: {
-          title: account.businessName || 'Informações do negócio',
+          title:
+            account.businessName ||
+            normalized.businessName ||
+            'Informações do negócio',
           description:
-            answers.businessDescription ||
+            normalized.businessDescription ||
             'Informações gerais cadastradas durante a criação do assistente.',
           price_eur: null,
         },
@@ -386,31 +362,33 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
       catalogItemIds.push(fallbackItem._id);
     }
 
-    const existingBot = await Bot.findOne({ owner: username });
-
-    if (existingBot) {
-      return res.status(409).json({
-        error: 'Este usuário já possui um bot criado.',
-        code: 'BOT_ALREADY_EXISTS',
-      });
-    }
-
     const bot = await Bot.create({
       name: 'Enki',
-      persona: `Atendente virtual ${answers.tone || 'profissional'} para ${answers.businessType || 'negócio'}`,
-      about: buildAbout({ answers, products: validProducts }),
-      guidelines: buildGuidelines(answers),
+      persona: `Atendente virtual ${
+        normalized.tone || normalized.assistantPersonality || 'profissional'
+      } para ${normalized.businessType || 'negócio'}`,
+      about: buildAbout({
+        normalized,
+        products: validProducts,
+      }),
+      guidelines: buildGuidelines(normalized),
       temperature: 0.5,
       product: [],
       catalogItems: catalogItemIds,
-      companyName: account.businessName || '',
-      address: '',
+      companyName:
+        account.businessName || normalized.businessName || '',
+      address: normalized.location || '',
       email: account.email || cleanEmail,
-      phone: account.phone || '',
+      phone:
+        account.phone ||
+        normalized.whatsapp ||
+        '',
       owner: username,
     });
 
+    draft.normalizedAnswers = normalized;
     draft.status = 'completed';
+
     await draft.save();
 
     const token = jwt.sign(
@@ -432,11 +410,14 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
       username,
       botId: bot._id,
       chatUrl,
-      businessName: account.businessName || '',
+      businessName:
+        account.businessName || normalized.businessName || '',
     });
   } catch (error) {
     console.error('[ONBOARDING_VERIFY_CODE] error:', error);
-    return res.status(500).json({ error: 'Error al verificar código.' });
+    return res.status(500).json({
+      error: 'Error al verificar código.',
+    });
   }
 });
 

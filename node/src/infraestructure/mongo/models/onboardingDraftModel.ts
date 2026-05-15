@@ -1,4 +1,3 @@
-// src/infraestructure/mongo/models/onboardingDraftModel.ts
 import mongoose from 'mongoose';
 
 const OnboardingDraftSchema = new mongoose.Schema(
@@ -6,14 +5,35 @@ const OnboardingDraftSchema = new mongoose.Schema(
     username: { type: String, required: true, index: true },
     email: { type: String, required: true, index: true },
 
-    answers: { type: Object, required: true },
-    products: { type: Array, default: [] },
-    account: { type: Object, required: true },
+    businessType: { type: String, default: '' },
+
+    answers: {
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
+      default: {},
+    },
+
+    normalizedAnswers: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
+    products: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: [],
+    },
+
+    account: {
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
+      default: {},
+    },
 
     status: {
       type: String,
       enum: ['pending_email', 'completed', 'expired'],
       default: 'pending_email',
+      index: true,
     },
 
     expiresAt: {
@@ -24,5 +44,7 @@ const OnboardingDraftSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+OnboardingDraftSchema.index({ email: 1, status: 1 });
 
 export default mongoose.model('OnboardingDraft', OnboardingDraftSchema);
