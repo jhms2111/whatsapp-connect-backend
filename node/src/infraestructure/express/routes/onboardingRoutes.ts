@@ -7,6 +7,7 @@ import OnboardingDraft from '../../mongo/models/onboardingDraftModel';
 import CatalogCollection from '../../mongo/models/catalogCollectionModel';
 import CatalogItem from '../../mongo/models/catalogItemModel';
 import Bot from '../../mongo/models/botModel';
+import WebchatQuota from '../../mongo/models/webchatQuotaModel';
 
 import { sendEmail } from '../../../utils/email';
 
@@ -19,6 +20,8 @@ import {
 } from '../../../utils/onboardingNormalizer';
 
 const router = Router();
+
+const WELCOME_CREDITS = 100;
 
 function in24h() {
   return new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -39,6 +42,39 @@ function escapeHtml(str: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+async function grantWelcomeCredits(username: string) {
+  const now = new Date();
+  const periodStart = now;
+  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  await WebchatQuota.findOneAndUpdate(
+    { username },
+    {
+      $inc: {
+        totalConversations: WELCOME_CREDITS,
+      },
+      $setOnInsert: {
+        username,
+        usedCharacters: 0,
+        packageType: null,
+        lastStripeCheckoutId: null,
+        coins: 0,
+        coinsExpiresAt: null,
+        createdAt: now,
+      },
+      $set: {
+        periodStart,
+        periodEnd,
+        updatedAt: now,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+    }
+  );
 }
 
 function enkiCodeEmailTemplate({
@@ -386,6 +422,8 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
       owner: username,
     });
 
+    await grantWelcomeCredits(username);
+
     draft.normalizedAnswers = normalized;
     draft.status = 'completed';
 
@@ -412,6 +450,7 @@ router.post('/onboarding/verify-code', async (req: Request, res: Response) => {
       chatUrl,
       businessName:
         account.businessName || normalized.businessName || '',
+      welcomeCreditsGranted: WELCOME_CREDITS,
     });
   } catch (error) {
     console.error('[ONBOARDING_VERIFY_CODE] error:', error);
