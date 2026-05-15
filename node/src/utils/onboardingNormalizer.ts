@@ -1,5 +1,7 @@
 type AnyObject = Record<string, any>;
 
+type Lang = 'pt' | 'es' | 'en';
+
 function valueOrEmpty(value: any): string {
   if (value === undefined || value === null) return '';
   if (Array.isArray(value)) return value.filter(Boolean).join(', ');
@@ -12,13 +14,348 @@ function arrayOrEmpty(value: any): string[] {
   return [String(value)];
 }
 
+function getLang(answers: AnyObject): Lang {
+  if (answers.language === 'es') return 'es';
+  if (answers.language === 'en') return 'en';
+  return 'pt';
+}
+
+const questionLabels: Record<string, Record<Lang, string>> = {
+  language: {
+    pt: 'Em qual idioma o assistente deve falar?',
+    es: '¿En qué idioma debe hablar el asistente?',
+    en: 'Which language should the assistant speak?',
+  },
+  assistant_personality: {
+    pt: 'Qual personalidade o assistente deve ter?',
+    es: '¿Qué personalidad debe tener el asistente?',
+    en: 'What personality should the assistant have?',
+  },
+  assistant_goal: {
+    pt: 'Qual é o objetivo principal do assistente?',
+    es: '¿Cuál es el objetivo principal del asistente?',
+    en: 'What is the assistant’s main goal?',
+  },
+  response_style: {
+    pt: 'Como devem ser as respostas?',
+    es: '¿Cómo deben ser las respuestas?',
+    en: 'How should the answers be?',
+  },
+  sales_behavior: {
+    pt: 'O assistente deve tentar vender?',
+    es: '¿El asistente debe intentar vender?',
+    en: 'Should the assistant try to sell?',
+  },
+  human_handoff_global: {
+    pt: 'Quando o assistente deve chamar um humano?',
+    es: '¿Cuándo debe llamar a un humano?',
+    en: 'When should the assistant call a human?',
+  },
+  businessType: {
+    pt: 'Qual é o tipo do negócio?',
+    es: '¿Cuál es el tipo del negocio?',
+    en: 'What type of business is it?',
+  },
+
+  restaurant_name: {
+    pt: 'Qual é o nome do restaurante?',
+    es: '¿Cuál es el nombre del restaurante?',
+    en: 'What is the restaurant name?',
+  },
+  restaurant_type: {
+    pt: 'Qual é o estilo principal do restaurante?',
+    es: '¿Cuál es el estilo principal del restaurante?',
+    en: 'What is the restaurant’s main style?',
+  },
+  restaurant_description: {
+    pt: 'Como você descreveria o restaurante?',
+    es: '¿Cómo describirías el restaurante?',
+    en: 'How would you describe the restaurant?',
+  },
+  restaurant_location: {
+    pt: 'Qual é o endereço ou região de atendimento?',
+    es: '¿Cuál es la dirección o zona de atención?',
+    en: 'What is the address or service area?',
+  },
+  restaurant_opening_hours: {
+    pt: 'Quais são os horários de funcionamento?',
+    es: '¿Cuáles son los horarios de apertura?',
+    en: 'What are the opening hours?',
+  },
+  restaurant_service_modes: {
+    pt: 'Quais formas de atendimento o restaurante oferece?',
+    es: '¿Qué formas de atención ofrece el restaurante?',
+    en: 'Which service modes does the restaurant offer?',
+  },
+  restaurant_delivery_area: {
+    pt: 'Qual é a área de entrega?',
+    es: '¿Cuál es la zona de entrega?',
+    en: 'What is the delivery area?',
+  },
+  restaurant_delivery_time: {
+    pt: 'Qual é o tempo médio de entrega ou preparo?',
+    es: '¿Cuál es el tiempo medio de entrega o preparación?',
+    en: 'What is the average delivery or preparation time?',
+  },
+  restaurant_reservation: {
+    pt: 'O assistente pode ajudar com reservas?',
+    es: '¿El asistente puede ayudar con reservas?',
+    en: 'Can the assistant help with reservations?',
+  },
+  restaurant_average_ticket: {
+    pt: 'Qual é a faixa média de preço por pessoa?',
+    es: '¿Cuál es el precio medio por persona?',
+    en: 'What is the average price range per person?',
+  },
+  restaurant_main_dishes: {
+    pt: 'Quais são os principais pratos do restaurante?',
+    es: '¿Cuáles son los platos principales del restaurante?',
+    en: 'What are the restaurant’s main dishes?',
+  },
+  restaurant_best_seller: {
+    pt: 'Quais pratos o assistente deve recomendar primeiro?',
+    es: '¿Qué platos debe recomendar primero el asistente?',
+    en: 'Which dishes should the assistant recommend first?',
+  },
+  restaurant_recommendation_style: {
+    pt: 'Como o assistente deve fazer recomendações?',
+    es: '¿Cómo debe hacer recomendaciones el asistente?',
+    en: 'How should the assistant make recommendations?',
+  },
+  restaurant_menu_categories: {
+    pt: 'Quais categorias existem no cardápio?',
+    es: '¿Qué categorías existen en el menú?',
+    en: 'Which menu categories exist?',
+  },
+  restaurant_special_options: {
+    pt: 'O restaurante oferece opções especiais?',
+    es: '¿El restaurante ofrece opciones especiales?',
+    en: 'Does the restaurant offer special options?',
+  },
+  restaurant_allergies: {
+    pt: 'Existem alertas importantes sobre alergias?',
+    es: '¿Hay alertas importantes sobre alergias?',
+    en: 'Are there important allergy warnings?',
+  },
+  restaurant_ingredients_policy: {
+    pt: 'O cliente pode pedir alterações nos ingredientes?',
+    es: '¿El cliente puede pedir cambios en los ingredientes?',
+    en: 'Can customers request ingredient changes?',
+  },
+  restaurant_spicy_options: {
+    pt: 'Existem opções picantes?',
+    es: '¿Hay opciones picantes?',
+    en: 'Are there spicy options?',
+  },
+  restaurant_kids_options: {
+    pt: 'Existe menu infantil?',
+    es: '¿Existe menú infantil?',
+    en: 'Is there a kids menu?',
+  },
+  restaurant_drinks: {
+    pt: 'Quais bebidas o restaurante oferece?',
+    es: '¿Qué bebidas ofrece el restaurante?',
+    en: 'What drinks does the restaurant offer?',
+  },
+  restaurant_alcohol: {
+    pt: 'O restaurante serve bebidas alcoólicas?',
+    es: '¿El restaurante sirve bebidas alcohólicas?',
+    en: 'Does the restaurant serve alcoholic drinks?',
+  },
+  restaurant_desserts: {
+    pt: 'Quais sobremesas devem ser recomendadas?',
+    es: '¿Qué postres se deben recomendar?',
+    en: 'Which desserts should be recommended?',
+  },
+  restaurant_combos: {
+    pt: 'Existem combos ou menus especiais?',
+    es: '¿Hay combos o menús especiales?',
+    en: 'Are there combos or special menus?',
+  },
+  restaurant_promotions: {
+    pt: 'Existem promoções fixas ou dias especiais?',
+    es: '¿Hay promociones fijas o días especiales?',
+    en: 'Are there fixed promotions or special days?',
+  },
+  restaurant_payment_methods: {
+    pt: 'Quais formas de pagamento são aceitas?',
+    es: '¿Qué métodos de pago se aceptan?',
+    en: 'Which payment methods are accepted?',
+  },
+  restaurant_parking: {
+    pt: 'O restaurante tem estacionamento?',
+    es: '¿El restaurante tiene aparcamiento?',
+    en: 'Does the restaurant have parking?',
+  },
+  restaurant_pet_friendly: {
+    pt: 'O restaurante aceita pets?',
+    es: '¿El restaurante acepta mascotas?',
+    en: 'Is the restaurant pet-friendly?',
+  },
+  restaurant_accessibility: {
+    pt: 'Existe acessibilidade no local?',
+    es: '¿Hay accesibilidad en el local?',
+    en: 'Is the venue accessible?',
+  },
+  restaurant_wifi: {
+    pt: 'O restaurante oferece Wi-Fi para clientes?',
+    es: '¿El restaurante ofrece Wi-Fi para clientes?',
+    en: 'Does the restaurant offer Wi-Fi for customers?',
+  },
+  restaurant_music_environment: {
+    pt: 'Como é o ambiente do restaurante?',
+    es: '¿Cómo es el ambiente del restaurante?',
+    en: 'What is the restaurant atmosphere like?',
+  },
+  restaurant_events: {
+    pt: 'O restaurante realiza eventos?',
+    es: '¿El restaurante realiza eventos?',
+    en: 'Does the restaurant host events?',
+  },
+  restaurant_private_events: {
+    pt: 'O restaurante aceita eventos privados?',
+    es: '¿El restaurante acepta eventos privados?',
+    en: 'Does the restaurant accept private events?',
+  },
+  restaurant_large_groups: {
+    pt: 'Qual o limite ou condição para grupos grandes?',
+    es: '¿Cuál es el límite o condición para grupos grandes?',
+    en: 'What is the limit or condition for large groups?',
+  },
+  restaurant_cancellation_policy: {
+    pt: 'Existe política de cancelamento de reservas?',
+    es: '¿Existe política de cancelación de reservas?',
+    en: 'Is there a reservation cancellation policy?',
+  },
+  restaurant_order_policy: {
+    pt: 'Como o cliente deve fazer pedidos?',
+    es: '¿Cómo debe hacer pedidos el cliente?',
+    en: 'How should customers place orders?',
+  },
+  restaurant_delivery_platforms: {
+    pt: 'O restaurante usa plataformas de delivery?',
+    es: '¿El restaurante usa plataformas de delivery?',
+    en: 'Does the restaurant use delivery platforms?',
+  },
+  restaurant_customer_data: {
+    pt: 'Quais dados o assistente deve pedir do cliente?',
+    es: '¿Qué datos debe pedir el asistente al cliente?',
+    en: 'What customer data should the assistant ask for?',
+  },
+  restaurant_human_handoff: {
+    pt: 'Quando o assistente deve chamar um humano?',
+    es: '¿Cuándo debe llamar a un humano?',
+    en: 'When should the assistant call a human?',
+  },
+  restaurant_complaints: {
+    pt: 'Como o assistente deve lidar com reclamações?',
+    es: '¿Cómo debe manejar reclamaciones el asistente?',
+    en: 'How should the assistant handle complaints?',
+  },
+  restaurant_tone: {
+    pt: 'Qual deve ser o tom do assistente?',
+    es: '¿Cuál debe ser el tono del asistente?',
+    en: 'What should the assistant’s tone be?',
+  },
+  restaurant_upsell: {
+    pt: 'O assistente deve incentivar quais vendas extras?',
+    es: '¿Qué ventas extra debe incentivar el asistente?',
+    en: 'Which extras should the assistant encourage?',
+  },
+  restaurant_faq: {
+    pt: 'Quais perguntas os clientes fazem com frequência?',
+    es: '¿Qué preguntas hacen los clientes con frecuencia?',
+    en: 'What questions do customers often ask?',
+  },
+  restaurant_forbidden_answers: {
+    pt: 'O que o assistente nunca deve prometer ou responder?',
+    es: '¿Qué nunca debe prometer o responder el asistente?',
+    en: 'What should the assistant never promise or answer?',
+  },
+  restaurant_social_links: {
+    pt: 'Quais links importantes o assistente pode enviar?',
+    es: '¿Qué links importantes puede enviar el asistente?',
+    en: 'Which important links can the assistant send?',
+  },
+  restaurant_website: {
+    pt: 'Qual é o site do restaurante?',
+    es: '¿Cuál es la web del restaurante?',
+    en: 'What is the restaurant website?',
+  },
+  restaurant_instagram: {
+    pt: 'Qual é o Instagram do restaurante?',
+    es: '¿Cuál es el Instagram del restaurante?',
+    en: 'What is the restaurant Instagram?',
+  },
+  restaurant_whatsapp: {
+    pt: 'Qual WhatsApp ou telefone o cliente pode usar?',
+    es: '¿Qué WhatsApp o teléfono puede usar el cliente?',
+    en: 'Which WhatsApp or phone can customers use?',
+  },
+  restaurant_final_notes: {
+    pt: 'Existe mais alguma orientação importante para o assistente?',
+    es: '¿Hay alguna otra orientación importante para el asistente?',
+    en: 'Is there any other important instruction for the assistant?',
+  },
+};
+
+function humanizeKey(key: string) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatAnswer(value: any): string {
+  if (value === undefined || value === null || value === '') return '';
+
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).join(', ');
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return String(value).trim();
+}
+
+function buildQuestionAnswerContext(answers: AnyObject = {}) {
+  const lang = getLang(answers);
+
+  return Object.entries(answers)
+    .map(([key, value]) => {
+      const answer = formatAnswer(value);
+      if (!answer) return '';
+
+      const question =
+        questionLabels[key]?.[lang] ||
+        questionLabels[key]?.pt ||
+        humanizeKey(key);
+
+      if (lang === 'es') {
+        return `Pregunta: ${question}\nRespuesta: ${answer}`;
+      }
+
+      if (lang === 'en') {
+        return `Question: ${question}\nAnswer: ${answer}`;
+      }
+
+      return `Pergunta: ${question}\nResposta: ${answer}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export function normalizeOnboardingAnswers(answers: AnyObject = {}) {
   const businessType = answers.businessType || '';
+  const questionAnswerContext = buildQuestionAnswerContext(answers);
 
   const normalized = {
     language: answers.language || 'pt',
 
     businessType,
+
+    questionAnswerContext,
 
     assistantPersonality: answers.assistant_personality || '',
     assistantGoal: arrayOrEmpty(answers.assistant_goal),
@@ -168,8 +505,6 @@ export function buildAbout({
   normalized: any;
   products: any[];
 }) {
-  const r = normalized.restaurant || {};
-
   const productText =
     products.length > 0
       ? products
@@ -182,68 +517,11 @@ export function buildAbout({
       : 'Nenhum produto ou serviço informado.';
 
   return `
-Tipo de negócio: ${normalized.businessType || ''}
+CONTEXTO COMPLETO DO QUESTIONÁRIO:
+${normalized.questionAnswerContext || 'Nenhuma resposta cadastrada.'}
 
-Nome do negócio:
-${normalized.businessName || ''}
-
-Descrição do negócio:
-${normalized.businessDescription || ''}
-
-Localização / endereço:
-${normalized.location || ''}
-
-Horários de atendimento:
-${normalized.openingHours || ''}
-
-Formas de pagamento:
-${Array.isArray(normalized.paymentMethods) ? normalized.paymentMethods.join(', ') : normalized.paymentMethods || ''}
-
-Produtos ou serviços principais:
+PRODUTOS OU SERVIÇOS CADASTRADOS:
 ${productText}
-
-Informações específicas do restaurante:
-- Tipo: ${r.type || ''}
-- Modos de atendimento: ${r.serviceModes?.join(', ') || ''}
-- Área de entrega: ${r.deliveryArea || ''}
-- Tempo médio de entrega/preparo: ${r.deliveryTime || ''}
-- Reservas: ${r.reservation || ''}
-- Faixa média de preço: ${r.averageTicket || ''}
-- Pratos principais: ${r.mainDishes || ''}
-- Mais recomendados: ${r.bestSeller || ''}
-- Estilo de recomendação: ${r.recommendationStyle || ''}
-- Categorias do cardápio: ${r.menuCategories?.join(', ') || ''}
-- Opções especiais: ${r.specialOptions?.join(', ') || ''}
-- Alergias: ${r.allergies || ''}
-- Política de ingredientes: ${r.ingredientsPolicy || ''}
-- Opções picantes: ${r.spicyOptions || ''}
-- Menu infantil: ${r.kidsOptions || ''}
-- Bebidas: ${r.drinks || ''}
-- Álcool: ${r.alcohol || ''}
-- Sobremesas: ${r.desserts || ''}
-- Combos: ${r.combos || ''}
-- Promoções: ${r.promotions || ''}
-- Estacionamento: ${r.parking || ''}
-- Pet friendly: ${r.petFriendly || ''}
-- Acessibilidade: ${r.accessibility || ''}
-- Wi-Fi: ${r.wifi || ''}
-- Ambiente: ${r.environment || ''}
-- Eventos: ${r.events || ''}
-- Eventos privados: ${r.privateEvents || ''}
-- Grupos grandes: ${r.largeGroups || ''}
-- Política de cancelamento: ${r.cancellationPolicy || ''}
-- Como fazer pedidos: ${r.orderPolicy || ''}
-- Plataformas de delivery: ${r.deliveryPlatforms?.join(', ') || ''}
-- Dados que o assistente deve pedir: ${r.customerData?.join(', ') || ''}
-- Como lidar com reclamações: ${r.complaints || ''}
-- Upsell: ${r.upsell?.join(', ') || ''}
-- Perguntas frequentes: ${r.faq || ''}
-- O que nunca responder/prometer: ${r.forbiddenAnswers || ''}
-- Links importantes: ${r.socialLinks || ''}
-- Website: ${r.website || ''}
-- Instagram: ${r.instagram || ''}
-- WhatsApp: ${r.whatsapp || ''}
-- Notas finais: ${r.finalNotes || ''}
 `.trim();
 }
 
@@ -280,6 +558,9 @@ COMPORTAMENTO COMERCIAL:
 - ${normalized.salesBehavior || 'Ajudar sem pressionar o cliente.'}
 
 REGRAS GERAIS:
+- Use o CONTEXTO COMPLETO DO QUESTIONÁRIO como fonte principal.
+- Considere sempre a pergunta e a resposta juntas.
+- Responda de acordo com o idioma configurado no questionário, exceto se o cliente escrever em outro idioma.
 - Seja educado, claro e humano.
 - Responda em mensagens curtas.
 - Nunca invente preços, horários, promoções, prazos ou políticas.
