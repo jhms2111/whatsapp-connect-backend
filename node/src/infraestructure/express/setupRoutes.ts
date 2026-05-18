@@ -107,7 +107,7 @@ import whatsappSubscriptionRouter from './routes/whatsappSubscription';
 
 import whatsappSubscriptionStatus from './routes/whatsappSubscriptionStatus'
 
-import onboardingRoutes from './routes/onboardingRoutes';
+import onboardingRoutes from '../../modules/onboarding/routes/onboarding.routes';
 
 
 import catalogRouter from './routes/catalogRouter'
