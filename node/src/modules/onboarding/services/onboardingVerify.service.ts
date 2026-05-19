@@ -55,18 +55,12 @@ export async function onboardingVerifyService({
     email: session.userEmail,
   });
 
-  if (!user) {
-    user = await User.create({
-      username: session.username,
-      email: session.userEmail,
-      passwordHash: '',
-      role: 'user',
-      emailVerified: true,
-    });
-  } else {
-    user.emailVerified = true;
-    await user.save();
-  }
+if (!user) {
+  throw new Error('Usuário não encontrado para este onboarding.');
+}
+
+user.emailVerified = true;
+await user.save();
 
   const normalized = normalizeOnboarding({
     language: session.language,

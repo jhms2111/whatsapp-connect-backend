@@ -24,6 +24,19 @@ function sessionExpiry() {
 export async function onboardingStartService(input: any) {
   const cleanMail = cleanEmail(input.email || input.account?.email);
   const cleanUser = cleanUsername(input.username);
+  const password = String(input.password || input.account?.password || '');
+
+  if (!cleanMail) {
+    throw new Error('Email é obrigatório.');
+  }
+
+  if (!cleanUser) {
+    throw new Error('Username é obrigatório.');
+  }
+
+  if (!password || password.length < 8) {
+    throw new Error('A senha precisa ter pelo menos 8 caracteres.');
+  }
 
   const normalized = normalizeOnboarding(input);
   const llmContext = buildLlmContext(normalized);
@@ -40,11 +53,27 @@ export async function onboardingStartService(input: any) {
     username: cleanUser,
   });
 
-  if (
-    existingUsername &&
-    existingUsername.email !== cleanMail
-  ) {
+  if (existingUsername && existingUsername.email !== cleanMail) {
     throw new Error('Este nome de usuário já está em uso.');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  let user = existingUser;
+
+  if (!user) {
+    user = await User.create({
+      username: cleanUser,
+      email: cleanMail,
+      passwordHash,
+      role: 'user',
+      emailVerified: false,
+    });
+  } else {
+    user.username = cleanUser;
+    user.passwordHash = passwordHash;
+    user.emailVerified = false;
+    await user.save();
   }
 
   const verificationCode = generateEmailCode();
@@ -69,7 +98,10 @@ export async function onboardingStartService(input: any) {
 
     products: normalized.products,
 
-    account: normalized.account,
+    account: {
+      ...normalized.account,
+      email: cleanMail,
+    },
 
     userEmail: cleanMail,
 
