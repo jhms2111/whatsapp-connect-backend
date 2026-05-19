@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 import User from '../../../infraestructure/mongo/models/userModel';
+import WebchatQuota from '../../../infraestructure/mongo/models/webchatQuotaModel';
 
 import { normalizeOnboarding } from '../core/normalizeOnboarding';
 import { buildLlmContext } from '../core/buildLlmContext';
@@ -12,6 +13,42 @@ import {
 } from './onboardingSession.service';
 
 import { onboardingCompletionService } from './onboardingCompletion.service';
+
+const WELCOME_CREDITS = 100;
+
+async function grantWelcomeCredits(username: string) {
+  const now = new Date();
+
+  const periodStart = now;
+  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  await WebchatQuota.findOneAndUpdate(
+    { username },
+    {
+      $inc: {
+        totalConversations: WELCOME_CREDITS,
+      },
+      $setOnInsert: {
+        username,
+        usedCharacters: 0,
+        packageType: null,
+        lastStripeCheckoutId: null,
+        coins: 0,
+        coinsExpiresAt: null,
+        createdAt: now,
+      },
+      $set: {
+        periodStart,
+        periodEnd,
+        updatedAt: now,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+    }
+  );
+}
 
 export async function onboardingVerifyService({
   email,
@@ -51,16 +88,16 @@ export async function onboardingVerifyService({
     throw new Error('Código inválido.');
   }
 
-  let user = await User.findOne({
+  const user = await User.findOne({
     email: session.userEmail,
   });
 
-if (!user) {
-  throw new Error('Usuário não encontrado para este onboarding.');
-}
+  if (!user) {
+    throw new Error('Usuário não encontrado para este onboarding.');
+  }
 
-user.emailVerified = true;
-await user.save();
+  user.emailVerified = true;
+  await user.save();
 
   const normalized = normalizeOnboarding({
     language: session.language,
@@ -79,6 +116,8 @@ await user.save();
     normalized,
     llmContext,
   });
+
+  await grantWelcomeCredits(session.username);
 
   await completeOnboardingSession(session._id, {
     createdBotId: bot._id,
@@ -107,5 +146,6 @@ await user.save();
     chatUrl: `${
       process.env.FRONTEND_URL || 'http://localhost:3000'
     }/chat/${session.username}`,
+    welcomeCreditsGranted: WELCOME_CREDITS,
   };
 }

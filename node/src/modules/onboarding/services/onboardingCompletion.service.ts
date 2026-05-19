@@ -1,12 +1,8 @@
-import CatalogCollection from '../../../infraestructure/mongo/models/onboardingDraftModel';
-
+import CatalogCollection from '../../../infraestructure/mongo/models/catalogCollectionModel';
 import CatalogItem from '../../../infraestructure/mongo/models/catalogItemModel';
-
 import Bot from '../../../infraestructure/mongo/models/botModel';
 
-import {
-  buildBotPayload,
-} from '../core/buildBotPayload';
+import { buildBotPayload } from '../core/buildBotPayload';
 
 import {
   buildCatalogItemPayload,
@@ -25,42 +21,35 @@ export async function onboardingCompletionService({
 }) {
   const username = session.username;
 
-  const collection =
-    await CatalogCollection.create({
-      owner: username,
-      title: getCollectionTitle(
-        normalized.domain
-      ),
-      fields: [],
-    });
+  const collection = await CatalogCollection.create({
+    owner: username,
+    title: getCollectionTitle(normalized.domain),
+    fields: [],
+  });
 
   const catalogItemIds: any[] = [];
 
   if (normalized.products.length > 0) {
     for (const product of normalized.products) {
-      const item =
-        await CatalogItem.create({
-          owner: username,
-          collectionId: collection._id,
-
-          ...buildCatalogItemPayload(product),
-        });
+      const item = await CatalogItem.create({
+        owner: username,
+        collectionId: collection._id,
+        ...buildCatalogItemPayload(product),
+      });
 
       catalogItemIds.push(item._id);
     }
   }
 
   if (catalogItemIds.length === 0) {
-    const fallback =
-      await CatalogItem.create({
-        owner: username,
-        collectionId: collection._id,
-
-        ...buildFallbackCatalogItem({
-          ...normalized,
-          llmContext,
-        }),
-      });
+    const fallback = await CatalogItem.create({
+      owner: username,
+      collectionId: collection._id,
+      ...buildFallbackCatalogItem({
+        ...normalized,
+        llmContext,
+      }),
+    });
 
     catalogItemIds.push(fallback._id);
   }
