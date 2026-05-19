@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 
-import { onboardingStartService } from '../../onboarding/services/onboardingStart.service';
-import { onboardingVerifyService } from '../../onboarding/services/onboardingVerify.service';
+import { onboardingStartService } from '../services/onboardingStart.service';
+import { onboardingVerifyService } from '../services/onboardingVerify.service';
 
 import { sendEmail } from '../../../utils/email';
 

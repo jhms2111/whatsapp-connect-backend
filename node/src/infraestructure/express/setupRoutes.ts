@@ -167,7 +167,7 @@ app.use(
   // ====== 3) ROTAS PÚBLICAS ======
   app.use('/api', registerRoutes);
   app.use('/api', verificationRoutes);
-  app.use('/api', onboardingRoutes);
+  app.use('/api/onboarding', onboardingRoutes);
   app.use('/api', userAuthRoutes);
   app.use('/api', meRoutes);           // /api/me/status
   app.use('/api', whatsappWebhook);
