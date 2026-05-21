@@ -1,3 +1,6 @@
+//buildCatalogPayload.ts
+
+
 import { getOnboardingDomain } from './registry';
 
 export function getCollectionTitle(domain?: string) {

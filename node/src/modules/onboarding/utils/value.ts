@@ -1,3 +1,6 @@
+//value.ts
+
+
 export function valueOrEmpty(value: any): string {
   if (value === undefined || value === null) return '';
 

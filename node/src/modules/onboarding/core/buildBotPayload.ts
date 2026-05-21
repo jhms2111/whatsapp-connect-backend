@@ -1,3 +1,5 @@
+//buildBotPayload.ts
+
 import { getOnboardingDomain } from './registry';
 
 export function buildBotPayload({

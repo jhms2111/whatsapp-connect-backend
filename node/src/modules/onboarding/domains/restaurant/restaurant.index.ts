@@ -1,3 +1,6 @@
+//restaurant.index.ts
+
+
 import { normalizeRestaurant } from './restaurant.normalizer';
 
 import {

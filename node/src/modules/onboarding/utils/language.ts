@@ -1,3 +1,6 @@
+//language.ts
+
+
 export type Lang = 'pt' | 'es' | 'en';
 
 export function getLang(value: any): Lang {

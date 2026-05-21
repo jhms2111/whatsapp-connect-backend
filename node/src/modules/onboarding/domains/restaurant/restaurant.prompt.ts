@@ -1,3 +1,7 @@
+//restaurant.prompt.ts
+
+
+
 export function buildRestaurantSummary(normalized: any) {
   const profile = normalized.domainProfile || {};
   const taxonomy = normalized.taxonomy || {};

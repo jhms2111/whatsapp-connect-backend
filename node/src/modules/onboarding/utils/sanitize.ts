@@ -1,3 +1,6 @@
+//sanitize.ts
+
+
 export function escapeHtml(value: any): string {
   return String(value || '')
     .replace(/&/g, '&amp;')

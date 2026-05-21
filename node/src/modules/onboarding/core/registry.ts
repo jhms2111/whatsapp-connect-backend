@@ -1,3 +1,7 @@
+//registry.ts
+
+
+
 import restaurantDomain from '../domains/restaurant/restaurant.index';
 
 

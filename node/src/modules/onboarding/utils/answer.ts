@@ -1,3 +1,6 @@
+//answer.ts
+
+
 import { getLang, Lang } from './language';
 
 export type OnboardingAnswerRecord = {

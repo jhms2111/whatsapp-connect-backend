@@ -1,3 +1,7 @@
+//restaurant.normalizer.ts
+
+
+
 import { arrayOrEmpty, valueOrEmpty } from '../../utils/value';
 
 export function normalizeRestaurant(input: any) {

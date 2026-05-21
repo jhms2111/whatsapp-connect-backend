@@ -1,3 +1,6 @@
+//normalizeOnboarding.ts
+
+
 import { getLang } from '../utils/language';
 import { cleanAnswers } from '../utils/answer';
 import { cleanString } from '../utils/value';
