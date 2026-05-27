@@ -1,3 +1,6 @@
+//onboardingDraftModel.ts
+
+
 import mongoose, { Schema } from 'mongoose';
 
 const onboardingAnswerSchema = new Schema(

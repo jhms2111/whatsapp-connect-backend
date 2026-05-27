@@ -1,8 +1,8 @@
 //onboardingSession.service.ts
 
+// backend/src/modules/onboarding/services/onboardingSession.service.ts
 
-
-import OnboardingSession from '../../../infraestructure/mongo/models/onboarding/onboardingSession.model';
+import OnboardingSession from '../../../infraestructure/mongo/models/onboardingDraftModel';
 
 export async function findOnboardingSessionByEmail(email: string) {
   return OnboardingSession.findOne({

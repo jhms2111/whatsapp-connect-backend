@@ -4,6 +4,7 @@
 import CatalogCollection from '../../../infraestructure/mongo/models/catalogCollectionModel';
 import CatalogItem from '../../../infraestructure/mongo/models/catalogItemModel';
 import Bot from '../../../infraestructure/mongo/models/botModel';
+import { createDomainProfile } from '../core/domainProfileRegistry';
 
 import { buildBotPayload } from '../core/buildBotPayload';
 
