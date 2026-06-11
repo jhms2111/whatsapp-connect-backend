@@ -30,19 +30,29 @@ export function buildLlmContext(normalized: any) {
 
     assistant: {
       personality:
-        normalized.answersMap?.assistant_personality || '',
+        normalized.answersMap?.assistant_personality ||
+        normalized.answersMap?.collection_agent_tone ||
+        '',
 
       goals:
-        normalized.answersMap?.assistant_goal || [],
+        normalized.answersMap?.assistant_goal ||
+        normalized.answersMap?.collection_negotiation_goal ||
+        [],
 
       responseStyle:
-        normalized.answersMap?.response_style || '',
+        normalized.answersMap?.response_style ||
+        normalized.answersMap?.collection_approach_style ||
+        '',
 
       salesBehavior:
-        normalized.answersMap?.sales_behavior || '',
+        normalized.answersMap?.sales_behavior ||
+        normalized.answersMap?.collection_allowed_negotiation ||
+        '',
 
       humanHandoff:
-        normalized.answersMap?.human_handoff_global || [],
+        normalized.answersMap?.human_handoff_global ||
+        normalized.answersMap?.collection_human_confirmation ||
+        [],
     },
 
     domainProfile:
@@ -50,6 +60,9 @@ export function buildLlmContext(normalized: any) {
 
     products:
       normalized.products || [],
+
+    debtors:
+      normalized.debtors || [],
   };
 
   return {

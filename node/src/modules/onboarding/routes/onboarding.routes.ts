@@ -6,6 +6,8 @@ import { Router, Request, Response } from 'express';
 import { onboardingStartService } from '../services/onboardingStart.service';
 import { onboardingVerifyService } from '../services/onboardingVerify.service';
 
+import OnboardingSession from '../../../infraestructure/mongo/models/onboardingDraftModel';
+
 import { sendEmail } from '../../../utils/email';
 
 const router = Router();
@@ -57,12 +59,50 @@ function onboardingCodeEmailTemplate({
   `;
 }
 
+router.get('/public-chat-profile/:username', async (req: Request, res: Response) => {
+  try {
+    const username = String(req.params.username || '').trim();
+
+    if (!username) {
+      return res.status(400).json({
+        error: 'Username é obrigatório.',
+      });
+    }
+
+    const session = await OnboardingSession.findOne({
+      username,
+      status: 'completed',
+    })
+      .sort({
+        completedAt: -1,
+        createdAt: -1,
+      })
+      .select('username domain account.businessName createdBotId');
+
+    if (!session) {
+      return res.status(404).json({
+        error: 'Agente não encontrado.',
+      });
+    }
+
+    return res.status(200).json({
+      username: session.username,
+      domain: session.domain || 'restaurant',
+      businessName: session.account?.businessName || session.username,
+      botId: session.createdBotId || null,
+    });
+  } catch (error) {
+    console.error('[PUBLIC_CHAT_PROFILE]', error);
+
+    return res.status(500).json({
+      error: getErrorMessage(error, 'Erro ao carregar perfil público do chat.'),
+    });
+  }
+});
+
 router.post('/start', async (req: Request, res: Response) => {
   try {
-    const {
-      username,
-      account,
-    } = req.body;
+    const { username, account } = req.body;
 
     const email = account?.email || req.body.email;
     const password = account?.password || req.body.password;

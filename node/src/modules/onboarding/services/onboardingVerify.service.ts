@@ -110,6 +110,7 @@ export async function onboardingVerifyService({
     answers: session.answers,
     answersMap: session.answersMap,
     products: session.products,
+    debtors: session.debtors,
     account: session.account,
   });
 

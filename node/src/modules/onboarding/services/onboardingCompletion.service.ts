@@ -67,8 +67,15 @@ export async function onboardingCompletionService({
 
   const bot = await Bot.create(botPayload);
 
-  return {
-    bot,
-    catalogItemIds,
-  };
+await createDomainProfile({
+  domain: normalized.domain,
+  owner: username,
+  botId: bot._id,
+  normalized,
+});
+
+return {
+  bot,
+  catalogItemIds,
+};
 }

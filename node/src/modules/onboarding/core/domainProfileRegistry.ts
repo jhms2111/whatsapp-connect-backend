@@ -1,9 +1,12 @@
-// backend/src/modules/onboarding/core/domainProfileRegistry.ts
+//domainProfileRegistry.ts
+
 
 import { createRestaurantProfile } from '../../../infraestructure/mongo/models/onboarding/restaurant/restaurantProfile.service';
+import { createDebtCollectionProfile } from '../../../infraestructure/mongo/models/onboarding/debtCollection/debtCollectionProfile.service';
 
 const domainProfileCreators: Record<string, any> = {
   restaurant: createRestaurantProfile,
+  debt_collection: createDebtCollectionProfile,
 };
 
 export async function createDomainProfile({

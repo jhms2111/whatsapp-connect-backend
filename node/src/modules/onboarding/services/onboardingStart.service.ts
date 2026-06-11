@@ -101,6 +101,8 @@ export async function onboardingStartService(input: any) {
 
     products: normalized.products,
 
+    debtors: normalized.debtors,
+
     account: {
       ...normalized.account,
       email: cleanMail,

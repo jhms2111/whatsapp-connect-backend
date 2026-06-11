@@ -48,6 +48,23 @@ const onboardingProductSchema = new Schema(
   { _id: false }
 );
 
+const onboardingDebtorSchema = new Schema(
+  {
+    debtorName: { type: String, default: '' },
+    documentReference: { type: String, default: '' },
+    debtAmount: { type: String, default: '' },
+    dueDate: { type: String, default: '' },
+    debtOrigin: { type: String, default: '' },
+    paymentMethods: [{ type: String }],
+    maxInstallments: { type: String, default: '' },
+    interestPolicy: { type: String, default: '' },
+    discountPolicy: { type: String, default: '' },
+    negotiationNotes: { type: String, default: '' },
+    debtorEmail: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const onboardingSessionSchema = new Schema(
   {
     status: {
@@ -107,6 +124,11 @@ const onboardingSessionSchema = new Schema(
 
     products: {
       type: [onboardingProductSchema],
+      default: [],
+    },
+
+    debtors: {
+      type: [onboardingDebtorSchema],
       default: [],
     },
 
