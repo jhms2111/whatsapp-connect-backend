@@ -1,15 +1,16 @@
 //onboardingCompletion.service.ts
 
-
 import CatalogCollection from '../../../infraestructure/mongo/models/catalogCollectionModel';
 import CatalogItem from '../../../infraestructure/mongo/models/catalogItemModel';
 import Bot from '../../../infraestructure/mongo/models/botModel';
+
 import { createDomainProfile } from '../core/domainProfileRegistry';
 
 import { buildBotPayload } from '../core/buildBotPayload';
 
 import {
   buildCatalogItemPayload,
+  buildDebtCatalogItemPayload,
   buildFallbackCatalogItem,
   getCollectionTitle,
 } from '../core/buildCatalogPayload';
@@ -33,7 +34,27 @@ export async function onboardingCompletionService({
 
   const catalogItemIds: any[] = [];
 
-  if (normalized.products.length > 0) {
+  if (
+    normalized.domain === 'debt_collection' &&
+    Array.isArray(normalized.debtors) &&
+    normalized.debtors.length > 0
+  ) {
+    for (const debtor of normalized.debtors) {
+      const item = await CatalogItem.create({
+        owner: username,
+        collectionId: collection._id,
+        ...buildDebtCatalogItemPayload(debtor),
+      });
+
+      catalogItemIds.push(item._id);
+    }
+  }
+
+  if (
+    normalized.domain !== 'debt_collection' &&
+    Array.isArray(normalized.products) &&
+    normalized.products.length > 0
+  ) {
     for (const product of normalized.products) {
       const item = await CatalogItem.create({
         owner: username,
@@ -67,15 +88,15 @@ export async function onboardingCompletionService({
 
   const bot = await Bot.create(botPayload);
 
-await createDomainProfile({
-  domain: normalized.domain,
-  owner: username,
-  botId: bot._id,
-  normalized,
-});
+  await createDomainProfile({
+    domain: normalized.domain,
+    owner: username,
+    botId: bot._id,
+    normalized,
+  });
 
-return {
-  bot,
-  catalogItemIds,
-};
+  return {
+    bot,
+    catalogItemIds,
+  };
 }

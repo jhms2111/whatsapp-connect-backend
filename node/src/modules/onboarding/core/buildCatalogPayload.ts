@@ -1,6 +1,3 @@
-//buildCatalogPayload.ts
-
-
 import { getOnboardingDomain } from './registry';
 
 export function getCollectionTitle(domain?: string) {
@@ -19,9 +16,24 @@ export function getCollectionTitle(domain?: string) {
     law_firm: 'Serviços jurídicos',
     online_store: 'Produtos',
     services: 'Serviços',
+    debt_collection: 'Cobranças',
   };
 
   return map[domain || ''] || 'Ofertas';
+}
+
+function toNumberOrNull(value: any) {
+  if (value === '' || value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value)
+    .replace(/[^\d.,-]/g, '')
+    .replace(',', '.');
+
+  const numberValue = Number(normalized);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 export function buildCatalogItemPayload(product: any) {
@@ -29,18 +41,71 @@ export function buildCatalogItemPayload(product: any) {
     ? `${product.description || ''}\n\nLink: ${product.link}`
     : product?.description || '';
 
-  const priceNumber =
-    product?.price !== '' &&
-    product?.price !== null &&
-    product?.price !== undefined
-      ? Number(product.price)
-      : null;
-
   return {
     values: {
       title: product?.title || 'Item',
       description,
-      price_eur: Number.isFinite(priceNumber) ? priceNumber : null,
+      price_eur: toNumberOrNull(product?.price),
+    },
+    images: [],
+  };
+}
+
+export function buildDebtCatalogItemPayload(debtor: any) {
+  const parts = [
+    debtor?.documentReference
+      ? `Referência/documento: ${debtor.documentReference}`
+      : '',
+
+    debtor?.debtAmount
+      ? `Valor da dívida: ${debtor.debtAmount}`
+      : '',
+
+    debtor?.dueDate
+      ? `Vencimento: ${debtor.dueDate}`
+      : '',
+
+    debtor?.debtOrigin
+      ? `Origem da dívida: ${debtor.debtOrigin}`
+      : '',
+
+    Array.isArray(debtor?.paymentMethods) && debtor.paymentMethods.length
+      ? `Formas de pagamento: ${debtor.paymentMethods.join(', ')}`
+      : '',
+
+    debtor?.maxInstallments
+      ? `Máximo de parcelas: ${debtor.maxInstallments}`
+      : '',
+
+    debtor?.interestPolicy
+      ? `Juros/encargos: ${debtor.interestPolicy}`
+      : '',
+
+    debtor?.discountPolicy
+      ? `Desconto permitido: ${debtor.discountPolicy}`
+      : '',
+
+    debtor?.debtorEmail
+      ? `Email do devedor: ${debtor.debtorEmail}`
+      : '',
+
+    debtor?.negotiationNotes
+      ? `Observações: ${debtor.negotiationNotes}`
+      : '',
+  ].filter(Boolean);
+
+  return {
+    values: {
+      title:
+        debtor?.debtorName ||
+        debtor?.documentReference ||
+        'Cobrança',
+
+      description:
+        parts.join('\n') ||
+        'Cobrança cadastrada durante a criação do agente.',
+
+      price_eur: toNumberOrNull(debtor?.debtAmount),
     },
     images: [],
   };
@@ -52,6 +117,7 @@ export function buildFallbackCatalogItem(normalized: any) {
       title:
         normalized.account?.businessName ||
         normalized.domainProfile?.name ||
+        normalized.domainProfile?.companyName ||
         'Informações do negócio',
 
       description:
