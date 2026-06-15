@@ -93,19 +93,68 @@ function cleanDebtors(debtors: any[] = []) {
   if (!Array.isArray(debtors)) return [];
 
   return debtors
-    .map((debtor) => ({
-      debtorName: cleanString(debtor?.debtorName),
-      documentReference: cleanString(debtor?.documentReference),
-      debtAmount: cleanString(debtor?.debtAmount),
-      dueDate: cleanString(debtor?.dueDate),
-      debtOrigin: cleanString(debtor?.debtOrigin),
-      paymentMethods: normalizeArray(debtor?.paymentMethods),
-      maxInstallments: cleanString(debtor?.maxInstallments),
-      interestPolicy: cleanString(debtor?.interestPolicy),
-      discountPolicy: cleanString(debtor?.discountPolicy),
-      negotiationNotes: cleanString(debtor?.negotiationNotes),
-      debtorEmail: cleanString(debtor?.debtorEmail),
-    }))
+    .map((debtor) => {
+      const monthlyInterestPercent = cleanString(
+        debtor?.monthlyInterestPercent
+      );
+
+      const cashDiscountPercent = cleanString(
+        debtor?.cashDiscountPercent
+      );
+
+      const installmentTotalAmount = cleanString(
+        debtor?.installmentTotalAmount
+      );
+
+      const installmentAmount = cleanString(
+        debtor?.installmentAmount
+      );
+
+      const cashPaymentAmount = cleanString(
+        debtor?.cashPaymentAmount
+      );
+
+      const interestPolicy =
+        cleanString(debtor?.interestPolicy) ||
+        (monthlyInterestPercent
+          ? `Juros de ${monthlyInterestPercent}% ao mês`
+          : '');
+
+      const discountPolicy =
+        cleanString(debtor?.discountPolicy) ||
+        (cashDiscountPercent
+          ? `Desconto de ${cashDiscountPercent}% para pagamento à vista`
+          : '');
+
+      const negotiationNotesParts = [
+        cleanString(debtor?.negotiationNotes),
+        installmentTotalAmount
+          ? `Valor total parcelado: ${installmentTotalAmount}`
+          : '',
+        installmentAmount
+          ? `Valor de cada parcela: ${installmentAmount}`
+          : '',
+        cashPaymentAmount
+          ? `Valor para pagamento à vista: ${cashPaymentAmount}`
+          : '',
+      ].filter(Boolean);
+
+      return {
+        debtorName: cleanString(debtor?.debtorName),
+        documentReference: cleanString(debtor?.documentReference),
+        debtAmount: cleanString(debtor?.debtAmount),
+        dueDate: cleanString(debtor?.dueDate),
+        debtOrigin: cleanString(debtor?.debtOrigin),
+        paymentMethods: normalizeArray(debtor?.paymentMethods),
+        maxInstallments: cleanString(debtor?.maxInstallments),
+
+        interestPolicy,
+        discountPolicy,
+
+        negotiationNotes: negotiationNotesParts.join('\n'),
+        debtorEmail: cleanString(debtor?.debtorEmail),
+      };
+    })
     .filter(
       (debtor) =>
         debtor.debtorName ||

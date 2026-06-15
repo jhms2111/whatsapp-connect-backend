@@ -4,19 +4,70 @@ function normalizeDebtors(debtors: any[] = []) {
   if (!Array.isArray(debtors)) return [];
 
   return debtors
-    .map((item) => ({
-      debtorName: valueOrEmpty(item?.debtorName),
-      documentReference: valueOrEmpty(item?.documentReference),
-      debtAmount: valueOrEmpty(item?.debtAmount),
-      dueDate: valueOrEmpty(item?.dueDate),
-      debtOrigin: valueOrEmpty(item?.debtOrigin),
-      paymentMethods: arrayOrEmpty(item?.paymentMethods),
-      maxInstallments: valueOrEmpty(item?.maxInstallments),
-      interestPolicy: valueOrEmpty(item?.interestPolicy),
-      discountPolicy: valueOrEmpty(item?.discountPolicy),
-      negotiationNotes: valueOrEmpty(item?.negotiationNotes),
-      debtorEmail: valueOrEmpty(item?.debtorEmail),
-    }))
+    .map((item) => {
+      const monthlyInterestPercent = valueOrEmpty(
+        item?.monthlyInterestPercent
+      );
+
+      const cashDiscountPercent = valueOrEmpty(
+        item?.cashDiscountPercent
+      );
+
+      const installmentTotalAmount = valueOrEmpty(
+        item?.installmentTotalAmount
+      );
+
+      const installmentAmount = valueOrEmpty(
+        item?.installmentAmount
+      );
+
+      const cashPaymentAmount = valueOrEmpty(
+        item?.cashPaymentAmount
+      );
+
+      const interestPolicy =
+        valueOrEmpty(item?.interestPolicy) ||
+        (monthlyInterestPercent
+          ? `Juros de ${monthlyInterestPercent}% ao mês`
+          : '');
+
+      const discountPolicy =
+        valueOrEmpty(item?.discountPolicy) ||
+        (cashDiscountPercent
+          ? `Desconto de ${cashDiscountPercent}% para pagamento à vista`
+          : '');
+
+      const negotiationNotes = [
+        valueOrEmpty(item?.negotiationNotes),
+        installmentTotalAmount
+          ? `Valor total parcelado: ${installmentTotalAmount}`
+          : '',
+        installmentAmount
+          ? `Valor de cada parcela: ${installmentAmount}`
+          : '',
+        cashPaymentAmount
+          ? `Valor para pagamento à vista: ${cashPaymentAmount}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return {
+        debtorName: valueOrEmpty(item?.debtorName),
+        documentReference: valueOrEmpty(item?.documentReference),
+        debtAmount: valueOrEmpty(item?.debtAmount),
+        dueDate: valueOrEmpty(item?.dueDate),
+        debtOrigin: valueOrEmpty(item?.debtOrigin),
+        paymentMethods: arrayOrEmpty(item?.paymentMethods),
+        maxInstallments: valueOrEmpty(item?.maxInstallments),
+
+        interestPolicy,
+        discountPolicy,
+        negotiationNotes,
+
+        debtorEmail: valueOrEmpty(item?.debtorEmail),
+      };
+    })
     .filter(
       (item) =>
         item.debtorName ||
